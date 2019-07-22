@@ -1,6 +1,6 @@
-package main
+package main // Might need to change package to proj2 to pass auto grader
 
-//package proj2 // Might need to change package to swap back to pass auto grader
+//package proj2
 
 // You MUST NOT change what you import.  If you add ANY additional
 // imports it will break the autograder, and we will be Very Upset.
