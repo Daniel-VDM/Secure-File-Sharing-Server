@@ -183,12 +183,12 @@ func (userdata *User) RevokeFile(filename string) (err error) {
 
 // Each test function can be stepped through here before moving it over to the test file.
 func main() {
-	// This example is the TestInit test.
+	// This example is given TestInit test.
 	userlib.SetDebugStatus(true)
 	u, err := InitUser("alice", "fubar")
 	if err != nil {
 		fmt.Println("Error")
 		return
 	}
-	_ = fmt.Sprintf("%s", u)
+	_ = u
 }
