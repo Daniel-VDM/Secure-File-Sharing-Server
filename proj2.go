@@ -1,9 +1,12 @@
-package proj2
+package main
+
+//package proj2 // Might need to change package to swap back to pass auto grader
 
 // You MUST NOT change what you import.  If you add ANY additional
 // imports it will break the autograder, and we will be Very Upset.
 
 import (
+	"fmt"
 	// You neet to add with
 	// go get github.com/ryanleh/cs161-p2/userlib
 	"github.com/ryanleh/cs161-p2/userlib"
@@ -30,7 +33,6 @@ import (
 
 	// optional
 	_ "strconv"
-
 	// if you are looking for fmt, we don't give you fmt, but you can use userlib.DebugMsg
 	// see someUsefulThings() below
 )
@@ -64,7 +66,7 @@ func someUsefulThings() {
 	// And a random RSA key.  In this case, ignoring the error
 	// return value
 	var pk userlib.PKEEncKey
-        var sk userlib.PKEDecKey
+	var sk userlib.PKEDecKey
 	pk, sk, _ = userlib.PKEKeyGen()
 	userlib.DebugMsg("Key is %v, %v", pk, sk)
 }
@@ -177,4 +179,16 @@ func (userdata *User) ReceiveFile(filename string, sender string,
 // Removes access for all others.
 func (userdata *User) RevokeFile(filename string) (err error) {
 	return
+}
+
+// Each test function can be stepped through here before moving it over to the test file.
+func main() {
+	// This example is the TestInit test.
+	userlib.SetDebugStatus(true)
+	u, err := InitUser("alice", "fubar")
+	if err != nil {
+		fmt.Println("Error")
+		return
+	}
+	_ = fmt.Sprintf("%s", u)
 }
