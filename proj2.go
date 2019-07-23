@@ -64,8 +64,6 @@ type wrapper struct {
 This is the main wrapper function that is used to ensure integrity of a slice of
 cypher text (C0 .. Cn) when it is stored on the Datastore.
 
-TODO: verify that pointer works for the slices since wrapper will get stored...
-
 It takes:
 	- A HMAC key byte slice.
 	- A slice of byte slice cypher texts s.t. the first element is the IV byte slice.
@@ -74,14 +72,19 @@ It returns:
 	- A nil error if successful.
 */
 func wrap(key *[]byte, cyphers *[][]byte) (wrap *wrapper, err error) {
+	wrap = &wrapper{*cyphers, make([][]byte, len(*cyphers))}
+	for i := range wrap.cyphers {
+		wrap.hmacs[i], err = userlib.HMACEval(*key, wrap.cyphers[i])
+		if err != nil {
+			return
+		}
+	}
 	return
 }
 
 /**
 This is the main unwrapping function to read encrypted cypher text from the Datastore
 and check for integrity.
-
-TODO: verify that pointer works for the slices since wrapper will get stored...
 
 It takes:
 	- A HMAC key byte slice.
@@ -91,14 +94,23 @@ It returns:
 	- A nil error if successful.
 */
 func unwrap(key *[]byte, wrap *wrapper) (cyphers *[][]byte, err error) {
+	for i := range wrap.cyphers {
+		checkHMAC := wrap.hmacs[i]
+		currHMAC, _ := userlib.HMACEval(*key, wrap.cyphers[i])
+		if !userlib.HMACEqual(checkHMAC, currHMAC) {
+			err = errors.New("failed to unwrap")
+			return
+		}
+	}
+	cyphers = &wrap.cyphers
 	return
 }
 
 /**
-This function symmetrically encrypts a byte slice while handling the padding.
+This function symmetrically encrypts a byte slice and handles the necessary padding.
 
 It takes:
-	- A encryption key byte slice.
+	- A decryption/encryption key byte slice.
 	- A IV byte slice. (size has to be equal to userlib.AESBlockSize)
 	- A byte slice to be encrypted.
 It returns:
@@ -128,7 +140,7 @@ func symEncrypt(key *[]byte, iv *[]byte, data *[]byte) (cyphers *[][]byte, err e
 This function symmetrically decrypts slice of byte slice cypher texts and removes the padding.
 
 It takes:
-	- A encryption key byte slice.
+	- A decryption/encryption key byte slice.
 	- A slice of byte slice cypher texts s.t. the first element is the IV byte slice.
 It returns:
 	- A byte slice of the unencrypted data
@@ -147,7 +159,6 @@ func symDecrypt(key *[]byte, cyphers *[][]byte) (data *[]byte, err error) {
 			break
 		}
 	}
-
 	decSlice = decSlice[:padStart]
 	data = &decSlice
 	return
@@ -252,16 +263,4 @@ func (userdata *User) ReceiveFile(filename string, sender string,
 // Removes access for all others.
 func (userdata *User) RevokeFile(filename string) (err error) {
 	return
-}
-
-// Each test function can be stepped through here before moving it over to the test file.
-func main() {
-	// This example is the TestInit test.
-	userlib.SetDebugStatus(true)
-	u, err := InitUser("alice", "fubar")
-	if err != nil {
-		userlib.DebugMsg("Error")
-		return
-	}
-	_ = u
 }
