@@ -6,7 +6,6 @@ package main // Might need to change package to proj2 to pass auto grader
 // imports it will break the autograder, and we will be Very Upset.
 
 import (
-	"fmt"
 	// You neet to add with
 	// go get github.com/ryanleh/cs161-p2/userlib
 	"github.com/ryanleh/cs161-p2/userlib"
@@ -181,14 +180,47 @@ func (userdata *User) RevokeFile(filename string) (err error) {
 	return
 }
 
+// Example of how to use CBC encrypted that they give to return a list of cyphers and how to
+// use C_i-1 and C_i to get P_i
+func cbc_enc_ex() {
+	// This example is given TestInit test.
+	IV := userlib.RandomBytes(userlib.AESBlockSize)
+	key := userlib.RandomBytes(userlib.AESBlockSize)
+	msg := userlib.RandomBytes(3 * userlib.AESBlockSize)
+	userlib.DebugPrint = true
+	userlib.DebugMsg("IV: %x", IV)
+
+	msg_list := make([][]byte, 3)
+	for i := 0; i < 3; i++ {
+		msg_list[i] = msg[i*userlib.AESBlockSize : (i+1)*userlib.AESBlockSize]
+	}
+	userlib.DebugMsg("Msg: %x", msg)
+	userlib.DebugMsg("Msg Blocks: %x", msg_list)
+
+	enc := userlib.SymEnc(key, IV, msg)
+	enc_list := make([][]byte, 4)
+	for i := 0; i < 4; i++ {
+		enc_list[i] = enc[i*userlib.AESBlockSize : (i+1)*userlib.AESBlockSize]
+	}
+	userlib.DebugMsg("ENC Msg: %x", enc)
+	userlib.DebugMsg("ENC Msg Blocks: %x", enc_list)
+
+	dec := userlib.SymDec(key, append(IV, enc...))[userlib.AESBlockSize:] // Note that the first block is garbage.
+	userlib.DebugMsg("DEC Msg: %x", dec)
+
+	dec_list := make([][]byte, 3)
+	for i := 0; i < 3; i++ {
+		e_msg := append(enc_list[i], enc_list[i+1]...)
+		//userlib.DebugMsg("e_msg %x", e_msg)
+		d_msg := userlib.SymDec(key, e_msg)
+		//userlib.DebugMsg("d_msg %x", d_msg)
+		dec_list[i] = d_msg
+	}
+
+	userlib.DebugMsg("DEC Msg Blocks: %x", dec_list)
+}
+
 // Each test function can be stepped through here before moving it over to the test file.
 func main() {
-	// This example is given TestInit test.
-	userlib.SetDebugStatus(true)
-	u, err := InitUser("alice", "fubar")
-	if err != nil {
-		fmt.Println("Error")
-		return
-	}
-	_ = u
+	cbc_enc_ex()
 }
