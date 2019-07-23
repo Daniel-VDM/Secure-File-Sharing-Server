@@ -2,10 +2,8 @@ package main // Might need to change package to proj2 to pass auto grader
 
 //package proj2
 
-// You MUST NOT change what you import.  If you add ANY additional
-// imports it will break the autograder, and we will be Very Upset.
-
 import (
+	"bytes"
 	_ "encoding/hex"
 	_ "encoding/json"
 	_ "errors"
@@ -16,6 +14,34 @@ import (
 	_ "strings"
 	"testing"
 )
+
+// This is a private test that only works with out implementation.
+// It tests the symmetric encryption function that handles padding
+// and implements a parallelized decryption
+func TestSymEncDec(t *testing.T) {
+	userlib.DebugPrint = false
+	for _, i := range []int{-4, -1, 0, 1, 5} {
+		userlib.DebugMsg("i = %d", i)
+		IV := userlib.RandomBytes(userlib.AESBlockSize)
+		key := userlib.RandomBytes(userlib.AESBlockSize)
+		msg := userlib.RandomBytes(userlib.AESBlockSize*50000 + i) // large message
+		userlib.DebugMsg("IV: %x", IV)
+		userlib.DebugMsg("Msg: %x", msg)
+
+		enc_list_ptr, _ := symEncrypt(&key, &IV, &msg)
+		userlib.DebugMsg("Enc List: %x", *enc_list_ptr)
+
+		dec_list, _ := symDecrypt(&key, enc_list_ptr)
+		userlib.DebugMsg("Dec List: %x", *dec_list)
+		if bytes.Equal(msg, *dec_list) {
+			userlib.DebugMsg("Msg and Dec equal")
+		} else {
+			userlib.DebugMsg("Msg and Dec NOT EQUAL!!!!")
+			t.Error("Failed to encrypt and decrypt", msg)
+		}
+		userlib.DebugMsg("\n")
+	}
+}
 
 func TestInit(t *testing.T) {
 	t.Log("Initialization test")

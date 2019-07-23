@@ -3,6 +3,8 @@
     <words>
       <w>datastore</w>
       <w>hmacs</w>
+      <w>parallelized</w>
+      <w>struct</w>
     </words>
   </dictionary>
 </component>

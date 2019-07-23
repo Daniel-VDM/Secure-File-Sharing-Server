@@ -124,6 +124,12 @@ func symEncrypt(key *[]byte, iv *[]byte, data *[]byte) (cyphers *[][]byte, err e
 	return
 }
 
+// Helper struct for parallelized decryption.
+type symDecStruct struct {
+	data  []byte
+	index int
+}
+
 /**
 This function symmetrically decrypts slice of byte slice cypher texts and removes the padding.
 It does the decryption in parallel.
@@ -136,21 +142,45 @@ It returns:
 	- A nil error if successful.
 */
 func symDecrypt(key *[]byte, cyphers *[][]byte) (data *[]byte, err error) {
-	var cypher []byte
-	for _, c := range *cyphers {
-		cypher = append(cypher, c...)
+	dataSlice := make([][]byte, len(*cyphers)-1)
+	dataSliceChan := make(chan *symDecStruct)
+
+	for i := 0; i < len(dataSlice); i++ {
+		go func(idx int) {
+			dat := symDecStruct{userlib.SymDec(*key, append((*cyphers)[idx], (*cyphers)[idx+1]...)), idx}
+			dataSliceChan <- &dat
+			return
+		}(i)
 	}
 
-	decSlice := userlib.SymDec(*key, cypher)
+	// Collect all plain texts for each thread and only continue when we have all.
+	func() {
+		counter := 0
+		for {
+			select {
+			case dat := <-dataSliceChan:
+				dataSlice[dat.index] = dat.data
+				counter++
+			default:
+				if counter >= len(dataSlice) {
+					return
+				}
+			}
+		}
+	}()
+
+	var singleDataSlice []byte
+	for _, pi := range dataSlice {
+		singleDataSlice = append(singleDataSlice, pi...)
+	}
 	var padStart uint
-	for padStart = uint(len(decSlice) - 1); padStart >= 0; padStart-- {
-		if decSlice[padStart] == 1 {
+	for padStart = uint(len(singleDataSlice) - 1); padStart >= 0; padStart-- {
+		if singleDataSlice[padStart] == 1 {
 			break
 		}
 	}
-
-	decSlice = decSlice[:padStart]
-	data = &decSlice
+	singleDataSlice = singleDataSlice[:padStart]
+	data = &singleDataSlice
 	return
 }
 
@@ -255,62 +285,14 @@ func (userdata *User) RevokeFile(filename string) (err error) {
 	return
 }
 
-// Example of how to use CBC encrypted that they give to return a list of cyphers and how to
-// use C_i-1 and C_i to get P_i
-func cbc_enc_ex() {
-	// This example is given TestInit test.
-	IV := userlib.RandomBytes(userlib.AESBlockSize)
-	key := userlib.RandomBytes(userlib.AESBlockSize)
-	msg := userlib.RandomBytes(3 * userlib.AESBlockSize)
-	userlib.DebugPrint = true
-	userlib.DebugMsg("IV: %x", IV)
-
-	msg_list := make([][]byte, 3)
-	for i := 0; i < 3; i++ {
-		msg_list[i] = msg[i*userlib.AESBlockSize : (i+1)*userlib.AESBlockSize]
-	}
-	userlib.DebugMsg("Msg: %x", msg)
-	userlib.DebugMsg("Msg Blocks: %x", msg_list)
-
-	enc := userlib.SymEnc(key, IV, msg)
-	enc_list := make([][]byte, 4)
-	for i := 0; i < 4; i++ {
-		enc_list[i] = enc[i*userlib.AESBlockSize : (i+1)*userlib.AESBlockSize]
-	}
-	userlib.DebugMsg("ENC Msg: %x", enc)
-	userlib.DebugMsg("ENC Msg Blocks: %x", enc_list)
-
-	dec := userlib.SymDec(key, append(IV, enc...))[userlib.AESBlockSize:] // Note that the first block is garbage.
-	userlib.DebugMsg("DEC Msg: %x", dec)
-
-	dec_list := make([][]byte, 3)
-	for i := 0; i < 3; i++ {
-		e_msg := append(enc_list[i], enc_list[i+1]...)
-		//userlib.DebugMsg("e_msg %x", e_msg)
-		d_msg := userlib.SymDec(key, e_msg)
-		//userlib.DebugMsg("d_msg %x", d_msg)
-		dec_list[i] = d_msg
-	}
-
-	userlib.DebugMsg("DEC Msg Blocks: %x", dec_list)
-}
-
-func symm_enc_dec_test() {
-	IV := userlib.RandomBytes(userlib.AESBlockSize)
-	key := userlib.RandomBytes(userlib.AESBlockSize)
-	msg := userlib.RandomBytes(userlib.AESBlockSize + 14)
-	userlib.DebugPrint = true
-	userlib.DebugMsg("IV: %x", IV)
-	userlib.DebugMsg("Msg: %x", msg)
-
-	enc_list_ptr, _ := symEncrypt(&key, &IV, &msg)
-	userlib.DebugMsg("Enc List: %x", *enc_list_ptr)
-
-	dec_list, _ := symDecrypt(&key, enc_list_ptr)
-	userlib.DebugMsg("Dec List: %x", *dec_list)
-}
-
 // Each test function can be stepped through here before moving it over to the test file.
 func main() {
-	symm_enc_dec_test()
+	// This example is the TestInit test.
+	userlib.SetDebugStatus(true)
+	u, err := InitUser("alice", "fubar")
+	if err != nil {
+		userlib.DebugMsg("Error")
+		return
+	}
+	_ = u
 }
