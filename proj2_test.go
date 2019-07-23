@@ -20,12 +20,12 @@ import (
 //
 // Requires the import of Bytes package.
 func TestSymEncDec(t *testing.T) {
-	userlib.DebugPrint = false
+	userlib.DebugPrint = true
 	for _, i := range []int{-4, -1, 0, 1, 5} {
 		userlib.DebugMsg("i = %d", i)
 		IV := userlib.RandomBytes(userlib.AESBlockSize)
 		key := userlib.RandomBytes(userlib.AESBlockSize)
-		msg := userlib.RandomBytes(userlib.AESBlockSize*100000 + i) // large message
+		msg := userlib.RandomBytes(userlib.AESBlockSize*10 + i) // large message
 		userlib.DebugMsg("IV: %x", IV)
 		userlib.DebugMsg("Msg: %x", msg)
 
