@@ -97,8 +97,6 @@ func unwrap(key *[]byte, wrap *wrapper) (cyphers *[][]byte, err error) {
 /**
 This function symmetrically encrypts a byte slice while handling the padding.
 
-TODO: verify that pointer works for the slices since wrapper will get stored...
-
 It takes:
 	- A encryption key byte slice.
 	- A IV byte slice. (size has to be equal to userlib.AESBlockSize)
@@ -108,13 +106,27 @@ It returns:
 	- A nil error if successful.
 */
 func symEncrypt(key *[]byte, iv *[]byte, data *[]byte) (cyphers *[][]byte, err error) {
+	padCount := userlib.AESBlockSize - (len(*data) % userlib.AESBlockSize)
+	if padCount == 0 {
+		err = errors.New("padding error during symmetric encryption")
+		return
+	}
+	pad := make([]byte, padCount)
+	pad[0] = 1
+
+	encSlice := userlib.SymEnc(*key, *iv, append(*data, pad...))
+	cyphersCount := len(encSlice) / userlib.AESBlockSize
+	cyphersSlice := make([][]byte, cyphersCount)
+	for i := 0; i < cyphersCount; i++ {
+		cyphersSlice[i] = encSlice[i*userlib.AESBlockSize : (i+1)*userlib.AESBlockSize]
+	}
+	cyphers = &cyphersSlice
 	return
 }
 
 /**
 This function symmetrically decrypts slice of byte slice cypher texts and removes the padding.
-
-TODO: verify that pointer works for the slices since wrapper will get stored...
+It does the decryption in parallel.
 
 It takes:
 	- A encryption key byte slice.
@@ -124,6 +136,21 @@ It returns:
 	- A nil error if successful.
 */
 func symDecrypt(key *[]byte, cyphers *[][]byte) (data *[]byte, err error) {
+	var cypher []byte
+	for _, c := range *cyphers {
+		cypher = append(cypher, c...)
+	}
+
+	decSlice := userlib.SymDec(*key, cypher)
+	var padStart uint
+	for padStart = uint(len(decSlice) - 1); padStart >= 0; padStart-- {
+		if decSlice[padStart] == 1 {
+			break
+		}
+	}
+
+	decSlice = decSlice[:padStart]
+	data = &decSlice
 	return
 }
 
@@ -268,7 +295,22 @@ func cbc_enc_ex() {
 	userlib.DebugMsg("DEC Msg Blocks: %x", dec_list)
 }
 
+func symm_enc_dec_test() {
+	IV := userlib.RandomBytes(userlib.AESBlockSize)
+	key := userlib.RandomBytes(userlib.AESBlockSize)
+	msg := userlib.RandomBytes(userlib.AESBlockSize + 14)
+	userlib.DebugPrint = true
+	userlib.DebugMsg("IV: %x", IV)
+	userlib.DebugMsg("Msg: %x", msg)
+
+	enc_list_ptr, _ := symEncrypt(&key, &IV, &msg)
+	userlib.DebugMsg("Enc List: %x", *enc_list_ptr)
+
+	dec_list, _ := symDecrypt(&key, enc_list_ptr)
+	userlib.DebugMsg("Dec List: %x", *dec_list)
+}
+
 // Each test function can be stepped through here before moving it over to the test file.
 func main() {
-	someUsefulThings()
+	symm_enc_dec_test()
 }
