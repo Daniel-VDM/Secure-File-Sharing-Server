@@ -124,15 +124,8 @@ func symEncrypt(key *[]byte, iv *[]byte, data *[]byte) (cyphers *[][]byte, err e
 	return
 }
 
-// Helper struct for parallelized decryption.
-type symDecStruct struct {
-	data  []byte
-	index int
-}
-
 /**
 This function symmetrically decrypts slice of byte slice cypher texts and removes the padding.
-It does the decryption in parallel.
 
 It takes:
 	- A encryption key byte slice.
@@ -142,45 +135,21 @@ It returns:
 	- A nil error if successful.
 */
 func symDecrypt(key *[]byte, cyphers *[][]byte) (data *[]byte, err error) {
-	dataSlice := make([][]byte, len(*cyphers)-1)
-	dataSliceChan := make(chan *symDecStruct)
-
-	for i := 0; i < len(dataSlice); i++ {
-		go func(idx int) {
-			dat := symDecStruct{userlib.SymDec(*key, append((*cyphers)[idx], (*cyphers)[idx+1]...)), idx}
-			dataSliceChan <- &dat
-			return
-		}(i)
+	var cypher []byte
+	for _, c := range *cyphers {
+		cypher = append(cypher, c...)
 	}
 
-	// Collect all plain texts for each thread and only continue when we have all.
-	func() {
-		counter := 0
-		for {
-			select {
-			case dat := <-dataSliceChan:
-				dataSlice[dat.index] = dat.data
-				counter++
-			default:
-				if counter >= len(dataSlice) {
-					return
-				}
-			}
-		}
-	}()
-
-	var singleDataSlice []byte
-	for _, pi := range dataSlice {
-		singleDataSlice = append(singleDataSlice, pi...)
-	}
+	decSlice := userlib.SymDec(*key, cypher)
 	var padStart uint
-	for padStart = uint(len(singleDataSlice) - 1); padStart >= 0; padStart-- {
-		if singleDataSlice[padStart] == 1 {
+	for padStart = uint(len(decSlice) - 1); padStart >= 0; padStart-- {
+		if decSlice[padStart] == 1 {
 			break
 		}
 	}
-	singleDataSlice = singleDataSlice[:padStart]
-	data = &singleDataSlice
+
+	decSlice = decSlice[:padStart]
+	data = &decSlice
 	return
 }
 
