@@ -115,7 +115,7 @@ func symDecrypt(key *[]byte, cyphers *[][]byte) (data *[]byte, err error) {
 // The structure definition for storing things on the Datastore.
 type wrapper struct {
 	cyphers [][]byte
-	hmacs   []byte
+	hmac    []byte
 }
 
 /**
@@ -136,7 +136,7 @@ func wrap(key *[]byte, cyphers *[][]byte) (wrap *wrapper, err error) {
 		datHMAC = append(datHMAC, wrap.cyphers[i]...)
 	}
 
-	wrap.hmacs, err = userlib.HMACEval(*key, datHMAC)
+	wrap.hmac, err = userlib.HMACEval(*key, datHMAC)
 	return
 }
 
@@ -158,7 +158,7 @@ func unwrap(key *[]byte, wrap *wrapper) (cyphers *[][]byte, err error) {
 	}
 
 	currHMAC, err := userlib.HMACEval(*key, datHMAC)
-	if !userlib.HMACEqual(wrap.hmacs, currHMAC) {
+	if !userlib.HMACEqual(wrap.hmac, currHMAC) {
 		err = errors.New("failed to unwrap")
 	} else {
 		cyphers = &wrap.cyphers

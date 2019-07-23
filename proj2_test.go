@@ -63,7 +63,7 @@ func TestWrapper(t *testing.T) {
 		t.Error("Failed to wrap")
 	}
 	//wrap_ptr.cyphers[1][0] = wrap_ptr.cyphers[1][8] // Uncomment to for a fail check.
-	//wrap_ptr.hmacs[0] = wrap_ptr.hmacs[8] // Uncomment to for a fail check.
+	//wrap_ptr.hmac[0] = wrap_ptr.hmac[8] // Uncomment to for a fail check.
 	unwrap_enc_list_ptr, err := unwrap(&key, wrap_ptr)
 	if err != nil {
 		userlib.DebugMsg("%v", err)
