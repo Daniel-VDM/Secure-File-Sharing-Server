@@ -31,6 +31,11 @@ func TestSymEncDec(t *testing.T) {
 		enc_list_ptr, _ := symEncrypt(&key, &IV, &msg)
 		userlib.DebugMsg("Enc List: %x", *enc_list_ptr)
 
+		if !bytes.Equal((*enc_list_ptr)[0], IV) {
+			userlib.DebugMsg("IV is not first element of enc list")
+			t.Error("Failed to encrypt and decrypt", msg)
+		}
+
 		dec_list, _ := symDecrypt(&key, enc_list_ptr)
 		userlib.DebugMsg("Dec List: %x", *dec_list)
 		if bytes.Equal(msg, *dec_list) {
