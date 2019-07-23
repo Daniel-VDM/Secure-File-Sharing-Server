@@ -14,6 +14,7 @@ import (
 
 func someUsefulThings() {
 	// Creates a random UUID
+	userlib.DebugPrint = true
 	f := uuid.New()
 	userlib.DebugMsg("UUID as string:%v", f.String())
 
@@ -90,6 +91,39 @@ It returns:
 	- A nil error if successful.
 */
 func unwrap(key *[]byte, wrap *wrapper) (cyphers *[][]byte, err error) {
+	return
+}
+
+/**
+This function symmetrically encrypts a byte slice while handling the padding.
+
+TODO: verify that pointer works for the slices since wrapper will get stored...
+
+It takes:
+	- A encryption key byte slice.
+	- A IV byte slice. (size has to be equal to userlib.AESBlockSize)
+	- A byte slice to be encrypted.
+It returns:
+	- A slice of byte slice cypher texts s.t. the first element is the IV byte slice.
+	- A nil error if successful.
+*/
+func symEncrypt(key *[]byte, iv *[]byte, data *[]byte) (cyphers *[][]byte, err error) {
+	return
+}
+
+/**
+This function symmetrically decrypts slice of byte slice cypher texts and removes the padding.
+
+TODO: verify that pointer works for the slices since wrapper will get stored...
+
+It takes:
+	- A encryption key byte slice.
+	- A slice of byte slice cypher texts s.t. the first element is the IV byte slice.
+It returns:
+	- A byte slice of the unencrypted data
+	- A nil error if successful.
+*/
+func symDecrypt(key *[]byte, cyphers *[][]byte) (data *[]byte, err error) {
 	return
 }
 
@@ -236,5 +270,5 @@ func cbc_enc_ex() {
 
 // Each test function can be stepped through here before moving it over to the test file.
 func main() {
-	cbc_enc_ex()
+	someUsefulThings()
 }
