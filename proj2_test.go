@@ -24,7 +24,7 @@ func TestSymEncDec(t *testing.T) {
 		userlib.DebugMsg("i = %d", i)
 		IV := userlib.RandomBytes(userlib.AESBlockSize)
 		key := userlib.RandomBytes(userlib.AESBlockSize)
-		msg := userlib.RandomBytes(userlib.AESBlockSize*50000 + i) // large message
+		msg := userlib.RandomBytes(userlib.AESBlockSize*100000 + i) // large message
 		userlib.DebugMsg("IV: %x", IV)
 		userlib.DebugMsg("Msg: %x", msg)
 
