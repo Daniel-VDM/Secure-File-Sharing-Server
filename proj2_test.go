@@ -20,7 +20,7 @@ import (
 //
 // Requires the import of Bytes package.
 func TestSymEncDec(t *testing.T) {
-	userlib.DebugPrint = true
+	userlib.DebugPrint = false
 	for _, i := range []int{-4, -1, 0, 1, 5} {
 		userlib.DebugMsg("i = %d", i)
 		IV := userlib.RandomBytes(userlib.AESBlockSize)
@@ -52,10 +52,10 @@ func TestSymEncDec(t *testing.T) {
 // This is a private test that only works with out implementation.
 // It tests the wrapper for things being stored on the Datastore.
 func TestWrapper(t *testing.T) {
-	userlib.DebugPrint = true
+	userlib.DebugPrint = false
 	IV := userlib.RandomBytes(userlib.AESBlockSize)
 	key := userlib.RandomBytes(userlib.AESBlockSize)
-	msg := userlib.RandomBytes(userlib.AESBlockSize * 3)
+	msg := userlib.RandomBytes(userlib.AESBlockSize * 10000000)
 	enc_list_ptr, _ := symEncrypt(&key, &IV, &msg)
 	wrap_ptr, err := wrap(&key, enc_list_ptr)
 	if err != nil {
@@ -63,7 +63,7 @@ func TestWrapper(t *testing.T) {
 		t.Error("Failed to wrap")
 	}
 	//wrap_ptr.cyphers[1][0] = wrap_ptr.cyphers[1][8] // Uncomment to for a fail check.
-	//wrap_ptr.hmacs[1][0] = wrap_ptr.hmacs[1][8] // Uncomment to for a fail check.
+	//wrap_ptr.hmacs[0] = wrap_ptr.hmacs[8] // Uncomment to for a fail check.
 	unwrap_enc_list_ptr, err := unwrap(&key, wrap_ptr)
 	if err != nil {
 		userlib.DebugMsg("%v", err)

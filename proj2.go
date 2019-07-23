@@ -54,58 +54,6 @@ func bytesToUUID(data []byte) (ret uuid.UUID) {
 	return
 }
 
-// The structure definition for storing things on the Datastore.
-type wrapper struct {
-	cyphers [][]byte
-	hmacs   [][]byte
-}
-
-/**
-This is the main wrapper function that is used to ensure integrity of a slice of
-cypher text (C0 .. Cn) when it is stored on the Datastore.
-
-It takes:
-	- A HMAC key byte slice.
-	- A slice of byte slice cypher texts s.t. the first element is the IV byte slice.
-It returns:
-	- A 'wrapper' struct following the format described in the design doc.
-	- A nil error if successful.
-*/
-func wrap(key *[]byte, cyphers *[][]byte) (wrap *wrapper, err error) {
-	wrap = &wrapper{*cyphers, make([][]byte, len(*cyphers))}
-	for i := range wrap.cyphers {
-		wrap.hmacs[i], err = userlib.HMACEval(*key, wrap.cyphers[i])
-		if err != nil {
-			return
-		}
-	}
-	return
-}
-
-/**
-This is the main unwrapping function to read encrypted cypher text from the Datastore
-and check for integrity.
-
-It takes:
-	- A HMAC key byte slice.
-	- A 'wrapper' struct following the format described in the design doc.
-It returns:
-	- A slice of byte slice cypher texts s.t. the first element is the IV byte slice.
-	- A nil error if successful.
-*/
-func unwrap(key *[]byte, wrap *wrapper) (cyphers *[][]byte, err error) {
-	for i := range wrap.cyphers {
-		checkHMAC := wrap.hmacs[i]
-		currHMAC, _ := userlib.HMACEval(*key, wrap.cyphers[i])
-		if !userlib.HMACEqual(checkHMAC, currHMAC) {
-			err = errors.New("failed to unwrap")
-			return
-		}
-	}
-	cyphers = &wrap.cyphers
-	return
-}
-
 /**
 This function symmetrically encrypts a byte slice and handles the necessary padding.
 
@@ -164,13 +112,63 @@ func symDecrypt(key *[]byte, cyphers *[][]byte) (data *[]byte, err error) {
 	return
 }
 
+// The structure definition for storing things on the Datastore.
+type wrapper struct {
+	cyphers [][]byte
+	hmacs   []byte
+}
+
+/**
+This is the main wrapper function that is used to ensure integrity of a slice of
+cypher text (C0 .. Cn) when it is stored on the Datastore.
+
+It takes:
+	- A HMAC key byte slice.
+	- A slice of byte slice cypher texts s.t. the first element is the IV byte slice.
+It returns:
+	- A 'wrapper' struct following the format described in the design doc.
+	- A nil error if successful.
+*/
+func wrap(key *[]byte, cyphers *[][]byte) (wrap *wrapper, err error) {
+	wrap = &wrapper{*cyphers, make([]byte, len(*cyphers))}
+	var datHMAC []byte
+	for i := range wrap.cyphers {
+		datHMAC = append(datHMAC, wrap.cyphers[i]...)
+	}
+
+	wrap.hmacs, err = userlib.HMACEval(*key, datHMAC)
+	return
+}
+
+/**
+This is the main unwrapping function to read encrypted cypher text from the Datastore
+and check for integrity.
+
+It takes:
+	- A HMAC key byte slice.
+	- A 'wrapper' struct following the format described in the design doc.
+It returns:
+	- A slice of byte slice cypher texts s.t. the first element is the IV byte slice.
+	- A nil error if successful.
+*/
+func unwrap(key *[]byte, wrap *wrapper) (cyphers *[][]byte, err error) {
+	var datHMAC []byte
+	for i := range wrap.cyphers {
+		datHMAC = append(datHMAC, wrap.cyphers[i]...)
+	}
+
+	currHMAC, err := userlib.HMACEval(*key, datHMAC)
+	if !userlib.HMACEqual(wrap.hmacs, currHMAC) {
+		err = errors.New("failed to unwrap")
+	} else {
+		cyphers = &wrap.cyphers
+	}
+	return
+}
+
 // The structure definition for a user record
 type User struct {
 	Username string
-
-	// You can add other fields here if you want...
-	// Note for JSON to marshal/unmarshal, the fields need to
-	// be public (start with a capital letter)
 }
 
 // This creates a user.  It will only be called once for a user
