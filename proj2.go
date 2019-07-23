@@ -2,42 +2,16 @@ package main // Might need to change package to proj2 to pass auto grader
 
 //package proj2
 
-// You MUST NOT change what you import.  If you add ANY additional
-// imports it will break the autograder, and we will be Very Upset.
-
 import (
-	// You neet to add with
-	// go get github.com/ryanleh/cs161-p2/userlib
-	"github.com/ryanleh/cs161-p2/userlib"
-
-	// Life is much easier with json:  You are
-	// going to want to use this so you can easily
-	// turn complex structures into strings etc...
-	"encoding/json"
-
-	// Likewise useful for debugging etc
 	"encoding/hex"
-
-	// UUIDs are generated right based on the crypto RNG
-	// so lets make life easier and use those too...
-	//
-	// You need to add with "go get github.com/google/uuid"
-	"github.com/google/uuid"
-
-	// Useful for debug messages, or string manipulation for datastore keys
-	"strings"
-
-	// Want to import errors
+	"encoding/json"
 	"errors"
-
-	// optional
+	"github.com/google/uuid"
+	"github.com/ryanleh/cs161-p2/userlib"
 	_ "strconv"
-	// if you are looking for fmt, we don't give you fmt, but you can use userlib.DebugMsg
-	// see someUsefulThings() below
+	"strings"
 )
 
-// This serves two purposes: It shows you some useful primitives and
-// it suppresses warnings for items not being imported
 func someUsefulThings() {
 	// Creates a random UUID
 	f := uuid.New()
@@ -76,6 +50,46 @@ func bytesToUUID(data []byte) (ret uuid.UUID) {
 	for x := range ret {
 		ret[x] = data[x]
 	}
+	return
+}
+
+// The structure definition for storing things on the Datastore.
+type wrapper struct {
+	cyphers [][]byte
+	hmacs   [][]byte
+}
+
+/**
+This is the main wrapper function that is used to ensure integrity of a slice of
+cypher text (C0 .. Cn) when it is stored on the Datastore.
+
+TODO: verify that pointer works for the slices since wrapper will get stored...
+
+It takes:
+	- A HMAC key byte slice.
+	- A slice of byte slice cypher texts s.t. the first element is the IV byte slice.
+It returns:
+	- A 'wrapper' struct following the format described in the design doc.
+	- A nil error if successful.
+*/
+func wrap(key *[]byte, cyphers *[][]byte) (wrap *wrapper, err error) {
+	return
+}
+
+/**
+This is the main unwrapping function to read encrypted cypher text from the Datastore
+and check for integrity.
+
+TODO: verify that pointer works for the slices since wrapper will get stored...
+
+It takes:
+	- A HMAC key byte slice.
+	- A 'wrapper' struct following the format described in the design doc.
+It returns:
+	- A slice of byte slice cypher texts s.t. the first element is the IV byte slice.
+	- A nil error if successful.
+*/
+func unwrap(key *[]byte, wrap *wrapper) (cyphers *[][]byte, err error) {
 	return
 }
 
