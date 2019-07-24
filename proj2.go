@@ -65,7 +65,7 @@ It returns:
 	- A slice of byte slice cypher texts s.t. the first element is the IV byte slice.
 	- A nil error if successful.
 */
-func symEncrypt(key *[]byte, iv *[]byte, data *[]byte) (cyphers *[][]byte, err error) {
+func symmetricEnc(key *[]byte, iv *[]byte, data *[]byte) (cyphers *[][]byte, err error) {
 	padCount := userlib.AESBlockSize - (len(*data) % userlib.AESBlockSize)
 	if padCount == 0 {
 		err = errors.New("padding error during symmetric encryption")
@@ -94,7 +94,7 @@ It returns:
 	- A byte slice of the unencrypted data
 	- A nil error if successful.
 */
-func symDecrypt(key *[]byte, cyphers *[][]byte) (data *[]byte, err error) {
+func symmetricDec(key *[]byte, cyphers *[][]byte) (data *[]byte, err error) {
 	var cypher []byte
 	for _, c := range *cyphers {
 		cypher = append(cypher, c...)
@@ -113,24 +113,24 @@ func symDecrypt(key *[]byte, cyphers *[][]byte) (data *[]byte, err error) {
 }
 
 // The structure definition for storing things on the Datastore.
-type wrapper struct {
+type Wrap struct {
 	Cyphers [][]byte
 	Hmac    []byte
 }
 
 /**
-This is the main wrapper function that is used to ensure integrity of a slice of
+This is the main Wrap function that is used to ensure integrity of a slice of
 cypher text (C0 .. Cn) when it is stored on the Datastore.
 
 It takes:
 	- A HMAC key byte slice.
 	- A slice of byte slice cypher texts s.t. the first element is the IV byte slice.
 It returns:
-	- A 'wrapper' struct following the format described in the design doc.
+	- A 'Wrap' struct following the format described in the design doc.
 	- A nil error if successful.
 */
-func wrap(key *[]byte, cyphers *[][]byte) (wrap *wrapper, err error) {
-	wrap = &wrapper{*cyphers, make([]byte, len(*cyphers))}
+func wrap(key *[]byte, cyphers *[][]byte) (wrap *Wrap, err error) {
+	wrap = &Wrap{*cyphers, make([]byte, len(*cyphers))}
 	var datHMAC []byte
 	for i := range wrap.Cyphers {
 		datHMAC = append(datHMAC, wrap.Cyphers[i]...)
@@ -146,12 +146,12 @@ and check for integrity.
 
 It takes:
 	- A HMAC key byte slice.
-	- A 'wrapper' struct following the format described in the design doc.
+	- A 'Wrap' struct following the format described in the design doc.
 It returns:
 	- A slice of byte slice cypher texts s.t. the first element is the IV byte slice.
 	- A nil error if successful.
 */
-func unwrap(key *[]byte, wrap *wrapper) (cyphers *[][]byte, err error) {
+func unwrap(key *[]byte, wrap *Wrap) (cyphers *[][]byte, err error) {
 	var datHMAC []byte
 	for i := range wrap.Cyphers {
 		datHMAC = append(datHMAC, wrap.Cyphers[i]...)
@@ -242,15 +242,15 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 		return
 	}
 	IV := userlib.RandomBytes(userlib.AESBlockSize)
-	encByteUserdataPtr, err := symEncrypt(&encKey, &IV, &byteUserdata)
+	encCyphersPtr, err := symmetricEnc(&encKey, &IV, &byteUserdata)
 	if err != nil {
 		return
 	}
-	wrappedUserdataPtr, err := wrap(&hmacKey, encByteUserdataPtr)
+	wrappedCyphersPtr, err := wrap(&hmacKey, encCyphersPtr)
 	if err != nil {
 		return
 	}
-	wrappedUserdataBytes, err := json.Marshal(*wrappedUserdataPtr)
+	wrappedUserdataBytes, err := json.Marshal(*wrappedCyphersPtr)
 	if err != nil {
 		return
 	}

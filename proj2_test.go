@@ -29,7 +29,7 @@ func TestSymEncDec(t *testing.T) {
 		userlib.DebugMsg("IV: %x", IV)
 		userlib.DebugMsg("Msg: %x", msg)
 
-		enc_list_ptr, _ := symEncrypt(&key, &IV, &msg)
+		enc_list_ptr, _ := symmetricEnc(&key, &IV, &msg)
 		userlib.DebugMsg("Enc List: %x", *enc_list_ptr)
 
 		//if !bytes.Equal((*enc_list_ptr)[0], IV) {
@@ -37,7 +37,7 @@ func TestSymEncDec(t *testing.T) {
 		//	t.Error("Failed to encrypt and decrypt", msg)
 		//}
 
-		dec_list, _ := symDecrypt(&key, enc_list_ptr)
+		dec_list, _ := symmetricDec(&key, enc_list_ptr)
 		userlib.DebugMsg("Dec List: %x", *dec_list)
 		//if bytes.Equal(msg, *dec_list) {
 		//	userlib.DebugMsg("Msg and Dec equal")
@@ -50,13 +50,13 @@ func TestSymEncDec(t *testing.T) {
 }
 
 // This is a private test that only works with out implementation.
-// It tests the wrapper for things being stored on the Datastore.
+// It tests the Wrap for things being stored on the Datastore.
 func TestWrapper(t *testing.T) {
 	userlib.DebugPrint = false
 	IV := userlib.RandomBytes(userlib.AESBlockSize)
 	key := userlib.RandomBytes(userlib.AESBlockSize)
 	msg := userlib.RandomBytes(userlib.AESBlockSize * 10000000)
-	enc_list_ptr, _ := symEncrypt(&key, &IV, &msg)
+	enc_list_ptr, _ := symmetricEnc(&key, &IV, &msg)
 	wrap_ptr, err := wrap(&key, enc_list_ptr)
 	if err != nil {
 		userlib.DebugMsg("%v", err)
