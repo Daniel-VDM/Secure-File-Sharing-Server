@@ -4,7 +4,7 @@ package main // Might need to change package to proj2 to pass auto grader
 
 import (
 	_ "encoding/hex"
-	_ "encoding/json"
+	"encoding/json"
 	_ "errors"
 	_ "github.com/google/uuid"
 	"github.com/ryanleh/cs161-p2/userlib"
@@ -17,8 +17,6 @@ import (
 // This is a private test that only works with out implementation.
 // It tests the symmetric encryption function that handles padding
 // and implements a parallelized decryption
-//
-// Requires the import of Bytes package.
 func TestSymEncDec(t *testing.T) {
 	userlib.DebugPrint = false
 	for _, i := range []int{-4, -1, 0, 1, 5} {
@@ -32,24 +30,20 @@ func TestSymEncDec(t *testing.T) {
 		enc_list_ptr, _ := symmetricEnc(&key, &IV, &msg)
 		userlib.DebugMsg("Enc List: %x", *enc_list_ptr)
 
-		//if !bytes.Equal((*enc_list_ptr)[0], IV) {
-		//	userlib.DebugMsg("IV is not first element of enc list")
-		//	t.Error("Failed to encrypt and decrypt", msg)
-		//}
-
 		dec_list, _ := symmetricDec(&key, enc_list_ptr)
 		userlib.DebugMsg("Dec List: %x", *dec_list)
-		//if bytes.Equal(msg, *dec_list) {
-		//	userlib.DebugMsg("Msg and Dec equal")
-		//} else {
-		//	userlib.DebugMsg("Msg and Dec NOT EQUAL!!!!")
-		//	t.Error("Failed to encrypt and decrypt", msg)
-		//}
+
+		for i := range *dec_list {
+			if (*dec_list)[i] != msg[i] {
+				t.Error("Encrypted msg doesnt match decrypted msg")
+			}
+		}
+
 		userlib.DebugMsg("\n")
 	}
 }
 
-// This is a private test that only works with out implementation.
+// This is a private test that only works with our implementation.
 // It tests the Wrap for things being stored on the Datastore.
 func TestWrapper(t *testing.T) {
 	userlib.DebugPrint = false
@@ -76,17 +70,37 @@ func TestWrapper(t *testing.T) {
 
 // This assumes that each unique username will only call init once.
 func TestInitAndGet(t *testing.T) {
-	t.Log("Initialization test")
-	userlib.SetDebugStatus(true)
+	userlib.SetDebugStatus(false)
 	datastore := userlib.DatastoreGetMap()
 
+	// Basic init and get test
 	u, err := InitUser("alice", "fubar")
-	ug, err := GetUser("alice", "fubar")
-	if err != nil || len(datastore) == 0 || u != ug {
-		t.Error("Failed to initialize user", err)
+	if err != nil {
+		t.Error(err)
+		return
+	} else if len(datastore) == 0 {
+		t.Error("Datastore is empty when there should be 1 element.")
 		return
 	}
-	t.Log("Got user", u)
+	userlib.DebugMsg("\n")
+	ug, err := GetUser("alice", "fubar")
+	if err != nil {
+		t.Error(err)
+		return
+	} else if len(datastore) == 0 {
+		t.Error("Datastore is empty when there should be 1 element.")
+		return
+	}
+
+	// Make sure the Init struct equal the fetch struct for the same user
+	uBytes, _ := json.Marshal(u)
+	ugBytes, _ := json.Marshal(ug)
+	for i := range uBytes {
+		if uBytes[i] != ugBytes[i] {
+			t.Error("Saved and fetched user doesn't match")
+			return
+		}
+	}
 }
 
 func TestStorage(t *testing.T) {

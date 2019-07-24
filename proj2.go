@@ -298,9 +298,7 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 	}
 
 	// Debugging stuff
-	userlib.DebugMsg("UUID: %v", UUID)
 	userlib.DebugMsg("loaded UUID: %v", userdata.UUID)
-	userlib.DebugMsg("UPH: %x", UPH)
 	userlib.DebugMsg("loaded UPH: %x", userdata.UPH)
 	userlib.DebugMsg("encKey: %x", encKey)
 	userlib.DebugMsg("hmacKey: %x", hmacKey)
