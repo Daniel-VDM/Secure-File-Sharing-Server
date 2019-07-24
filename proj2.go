@@ -114,8 +114,8 @@ func symDecrypt(key *[]byte, cyphers *[][]byte) (data *[]byte, err error) {
 
 // The structure definition for storing things on the Datastore.
 type wrapper struct {
-	cyphers [][]byte
-	hmac    []byte
+	Cyphers [][]byte
+	Hmac    []byte
 }
 
 /**
@@ -132,11 +132,11 @@ It returns:
 func wrap(key *[]byte, cyphers *[][]byte) (wrap *wrapper, err error) {
 	wrap = &wrapper{*cyphers, make([]byte, len(*cyphers))}
 	var datHMAC []byte
-	for i := range wrap.cyphers {
-		datHMAC = append(datHMAC, wrap.cyphers[i]...)
+	for i := range wrap.Cyphers {
+		datHMAC = append(datHMAC, wrap.Cyphers[i]...)
 	}
 
-	wrap.hmac, err = userlib.HMACEval(*key, datHMAC)
+	wrap.Hmac, err = userlib.HMACEval(*key, datHMAC)
 	return
 }
 
@@ -153,44 +153,111 @@ It returns:
 */
 func unwrap(key *[]byte, wrap *wrapper) (cyphers *[][]byte, err error) {
 	var datHMAC []byte
-	for i := range wrap.cyphers {
-		datHMAC = append(datHMAC, wrap.cyphers[i]...)
+	for i := range wrap.Cyphers {
+		datHMAC = append(datHMAC, wrap.Cyphers[i]...)
 	}
 
 	currHMAC, err := userlib.HMACEval(*key, datHMAC)
-	if !userlib.HMACEqual(wrap.hmac, currHMAC) {
+	if !userlib.HMACEqual(wrap.Hmac, currHMAC) {
 		err = errors.New("failed to unwrap")
 	} else {
-		cyphers = &wrap.cyphers
+		cyphers = &wrap.Cyphers
 	}
 	return
 }
 
 // The structure definition for a user record
 type User struct {
-	Username string
+	Username      string
+	UPH           []byte
+	UUID          uuid.UUID
+	PrivateDecKey userlib.PKEDecKey
+	PrivateSigKey userlib.DSSignKey
+	FilesOwned    map[uuid.UUID]bool
+	FileUUIDs     map[string]uuid.UUID
+	FileKeys      map[uuid.UUID][]byte
 }
 
-// This creates a user.  It will only be called once for a user
-// (unless the keystore and datastore are cleared during testing purposes)
+/**
+This is the main function to create a new user. The function assumes that it will
+be called only once per unique username.
 
-// It should store a copy of the userdata, suitably encrypted, in the
-// datastore and should store the user's public key in the keystore.
-
-// The datastore may corrupt or completely erase the stored
-// information, but nobody outside should be able to get at the stored
-// User data: the name used in the datastore should not be guessable
-// without also knowing the password and username.
-
-// You are not allowed to use any global storage other than the
-// keystore and the datastore functions in the userlib library.
-
-// You can assume the user has a STRONG password
+It takes:
+	- Username String
+	- Password String
+It returns:
+	- A pointer to the User struct that was created and stored on the Datastore.
+	- A nil error if successful.
+*/
 func InitUser(username string, password string) (userdataptr *User, err error) {
-	var userdata User
-	userdataptr = &userdata
+	// Derive necessary info from password and username
+	bytesUn := []byte(username)
+	bytesPw := []byte(password)
+	strongBytesPw := userlib.Argon2Key(bytesPw, bytesUn, uint32(userlib.AESBlockSize))
+	UPH, err := userlib.HMACEval(strongBytesPw, bytesUn) // User Password Hash
+	if err != nil {
+		return
+	}
+	UUID, err := uuid.FromBytes(UPH[:16])
+	if err != nil {
+		return
+	}
 
-	return &userdata, nil
+	// Initialize the user's struct
+	var userdata User
+	userdata.Username = username
+	userdata.UPH = UPH
+	userdata.UUID = UUID
+	userdata.FilesOwned = make(map[uuid.UUID]bool)
+	userdata.FileUUIDs = make(map[string]uuid.UUID)
+	userdata.FileKeys = make(map[uuid.UUID][]byte)
+
+	// Set-up and save the asymmetric keys
+	PKenc, PKdec, err := userlib.PKEKeyGen()
+	if err != nil {
+		return
+	}
+	DSsig, DSvfy, err := userlib.DSKeyGen()
+	if err != nil {
+		return
+	}
+	err = userlib.KeystoreSet("enc_"+userdata.UUID.String(), PKenc)
+	if err != nil {
+		return
+	}
+	err = userlib.KeystoreSet("vfy_"+userdata.UUID.String(), DSvfy)
+	if err != nil {
+		return
+	}
+	userdata.PrivateDecKey = PKdec
+	userdata.PrivateSigKey = DSsig
+
+	// Encrypt, Mac and Save the userdata on the Datastore
+	encKey := userlib.Argon2Key(append([]byte("enc_"), UPH...),
+		bytesPw, uint32(userlib.AESBlockSize))
+	hmacKey := userlib.Argon2Key(append([]byte("mac_"), UPH...),
+		bytesPw, uint32(userlib.AESBlockSize))
+	byteUserdata, err := json.Marshal(userdata)
+	if err != nil {
+		return
+	}
+	IV := userlib.RandomBytes(userlib.AESBlockSize)
+	encByteUserdataPtr, err := symEncrypt(&encKey, &IV, &byteUserdata)
+	if err != nil {
+		return
+	}
+	wrappedUserdataPtr, err := wrap(&hmacKey, encByteUserdataPtr)
+	if err != nil {
+		return
+	}
+	wrappedUserdataBytes, err := json.Marshal(*wrappedUserdataPtr)
+	if err != nil {
+		return
+	}
+	userlib.DatastoreSet(UUID, wrappedUserdataBytes)
+
+	userdataptr = &userdata
+	return
 }
 
 // This fetches the user information from the Datastore.  It should

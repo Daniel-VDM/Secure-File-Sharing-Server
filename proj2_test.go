@@ -62,8 +62,8 @@ func TestWrapper(t *testing.T) {
 		userlib.DebugMsg("%v", err)
 		t.Error("Failed to wrap")
 	}
-	//wrap_ptr.cyphers[1][0] = wrap_ptr.cyphers[1][8] // Uncomment to for a fail check.
-	//wrap_ptr.hmac[0] = wrap_ptr.hmac[8] // Uncomment to for a fail check.
+	//wrap_ptr.Cyphers[1][0] = wrap_ptr.Cyphers[1][8] // Uncomment to for a fail check.
+	//wrap_ptr.Hmac[0] = wrap_ptr.Hmac[8] // Uncomment to for a fail check.
 	unwrap_enc_list_ptr, err := unwrap(&key, wrap_ptr)
 	if err != nil {
 		userlib.DebugMsg("%v", err)
@@ -74,24 +74,19 @@ func TestWrapper(t *testing.T) {
 	userlib.DebugMsg("Unwrapped Enc List: %x", *unwrap_enc_list_ptr)
 }
 
+// This assumes that each unique username will only call init once.
 func TestInit(t *testing.T) {
 	t.Log("Initialization test")
-
-	// You may want to turn it off someday
 	userlib.SetDebugStatus(true)
-	// someUsefulThings()  //  Don't call someUsefulThings() in the autograder in case a student removes it
-	userlib.SetDebugStatus(false)
+	datastore := userlib.DatastoreGetMap()
+
 	u, err := InitUser("alice", "fubar")
-	if err != nil {
-		// t.Error says the test fails
+	z, err := InitUser("bob", "fubar")
+	if err != nil || len(datastore) == 0 {
 		t.Error("Failed to initialize user", err)
 		return
 	}
-	// t.Log() only produces output if you run with "go test -v"
-	t.Log("Got user", u)
-	// If you want to comment the line above,
-	// write _ = u here to make the compiler happy
-	// You probably want many more tests here.
+	t.Log("Got user", u, z)
 }
 
 func TestStorage(t *testing.T) {
