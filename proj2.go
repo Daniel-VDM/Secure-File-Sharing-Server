@@ -447,9 +447,17 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 	return
 }
 
-// This loads a file from the Datastore.
-//
-// It should give an error if the file is corrupted in any way.
+/**
+This method loads a file in the datastore and does not reveal the filename to the Datastore.
+It will error if the file doesn't exist or if the file is corrupted in ANY WAY.
+Note that only a user (i.e: a User struct) can call this method.
+
+It takes:
+	- A filename string = the name of the file for THIS particular user.
+It returns:
+	- The file's byte slice.
+	- A nil error if successful.
+*/
 func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 	return
 }
