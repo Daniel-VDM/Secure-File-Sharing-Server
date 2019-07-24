@@ -27,10 +27,10 @@ func TestSymEncDec(t *testing.T) {
 		userlib.DebugMsg("IV: %x", IV)
 		userlib.DebugMsg("Msg: %x", msg)
 
-		enc_list_ptr, _ := symmetricEnc(&key, &IV, &msg)
+		enc_list_ptr, _ := SymmetricEnc(&key, &IV, &msg)
 		userlib.DebugMsg("Enc List: %x", *enc_list_ptr)
 
-		dec_list, _ := symmetricDec(&key, enc_list_ptr)
+		dec_list, _ := SymmetricDec(&key, enc_list_ptr)
 		userlib.DebugMsg("Dec List: %x", *dec_list)
 
 		for i := range *dec_list {
@@ -50,18 +50,18 @@ func TestWrapper(t *testing.T) {
 	IV := userlib.RandomBytes(userlib.AESBlockSize)
 	key := userlib.RandomBytes(userlib.AESBlockSize)
 	msg := userlib.RandomBytes(userlib.AESBlockSize * 10000000)
-	enc_list_ptr, _ := symmetricEnc(&key, &IV, &msg)
-	wrap_ptr, err := wrap(&key, enc_list_ptr)
+	enc_list_ptr, _ := SymmetricEnc(&key, &IV, &msg)
+	wrap_ptr, err := Wrapper(&key, enc_list_ptr)
 	if err != nil {
 		userlib.DebugMsg("%v", err)
-		t.Error("Failed to wrap")
+		t.Error("Failed to Wrapper")
 	}
 	//wrap_ptr.Cyphers[1][0] = wrap_ptr.Cyphers[1][8] // Uncomment to for a fail check.
 	//wrap_ptr.Hmac[0] = wrap_ptr.Hmac[8] // Uncomment to for a fail check.
-	unwrap_enc_list_ptr, err := unwrap(&key, wrap_ptr)
+	unwrap_enc_list_ptr, err := Unwrapper(&key, wrap_ptr)
 	if err != nil {
 		userlib.DebugMsg("%v", err)
-		t.Error("Failed to unwrap")
+		t.Error("Failed to Unwrapper")
 		return
 	}
 	userlib.DebugMsg("Enc List: %x", *enc_list_ptr)

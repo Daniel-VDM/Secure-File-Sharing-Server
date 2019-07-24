@@ -29,7 +29,7 @@ It returns:
 	- A slice of byte slice cypher texts s.t. the first element is the IV byte slice.
 	- A nil error if successful.
 */
-func symmetricEnc(key *[]byte, iv *[]byte, data *[]byte) (cyphers *[][]byte, err error) {
+func SymmetricEnc(key *[]byte, iv *[]byte, data *[]byte) (cyphers *[][]byte, err error) {
 	padCount := userlib.AESBlockSize - (len(*data) % userlib.AESBlockSize)
 	if padCount == 0 {
 		err = errors.New("padding error during symmetric encryption")
@@ -60,7 +60,7 @@ It returns:
 	- A byte slice of the unencrypted data
 	- A nil error if successful.
 */
-func symmetricDec(key *[]byte, cyphers *[][]byte) (data *[]byte, err error) {
+func SymmetricDec(key *[]byte, cyphers *[][]byte) (data *[]byte, err error) {
 	var cypher []byte
 	for _, c := range *cyphers {
 		cypher = append(cypher, c...)
@@ -97,7 +97,7 @@ It returns:
 	- A 'Wrap' struct following the format described in the design doc.
 	- A nil error if successful.
 */
-func wrap(key *[]byte, cyphers *[][]byte) (wrap *Wrap, err error) {
+func Wrapper(key *[]byte, cyphers *[][]byte) (wrap *Wrap, err error) {
 	wrap = &Wrap{*cyphers, make([]byte, len(*cyphers))}
 	var datHMAC []byte
 	for i := range wrap.Cyphers {
@@ -119,7 +119,7 @@ It returns:
 	- A slice of byte slice cypher texts s.t. the first element is the IV byte slice.
 	- A nil error if successful.
 */
-func unwrap(key *[]byte, wrap *Wrap) (cyphers *[][]byte, err error) {
+func Unwrapper(key *[]byte, wrap *Wrap) (cyphers *[][]byte, err error) {
 	var datHMAC []byte
 	for i := range wrap.Cyphers {
 		datHMAC = append(datHMAC, wrap.Cyphers[i]...)
@@ -132,6 +132,14 @@ func unwrap(key *[]byte, wrap *Wrap) (cyphers *[][]byte, err error) {
 		cyphers = &wrap.Cyphers // Don't return cyphers if hmac is not correct.
 	}
 	return
+}
+
+// The structure definition for the DeriveUserAttributes function.
+type UserAttributes struct {
+	UUID      uuid.UUID
+	UPH       []byte
+	symEncKey []byte
+	hmacKey   []byte
 }
 
 // The structure definition for a user record
@@ -147,8 +155,43 @@ type User struct {
 }
 
 /**
-This is the main function to create a new user. The function assumes that it will
-be called only once per unique username.
+This is a helper function for the Init and Get user functions.
+It derives the keys, hashes and UUID for a user given their username and password.
+
+It takes:
+	- Username String.
+	- Password String.
+It returns:
+	- A pointer to a UserAttributes struct that has all of the derived attributes.
+	- A nil error if successful.
+*/
+func DeriveUserAttributes(username string, password string) (attrsPtr *UserAttributes, err error) {
+	var attrs UserAttributes
+
+	bUsername := []byte(username)
+	bPassword := []byte(password)
+	strongBytesPw := userlib.Argon2Key(bPassword, bUsername, uint32(userlib.AESBlockSize))
+
+	attrs.UPH, err = userlib.HMACEval(strongBytesPw, bUsername) // User Password Hash
+	if err != nil {
+		return
+	}
+	attrs.UUID, err = uuid.FromBytes(attrs.UPH[:16])
+	if err != nil {
+		return
+	}
+	attrs.symEncKey = userlib.Argon2Key(append([]byte("enc_"), attrs.UPH...),
+		bPassword, uint32(userlib.AESBlockSize))
+	attrs.hmacKey = userlib.Argon2Key(append([]byte("mac_"), attrs.UPH...),
+		bPassword, uint32(userlib.AESBlockSize))
+
+	attrsPtr = &attrs
+	return
+}
+
+/**
+This is the main function that creates a new user and saves them to the Datastore.
+This function assumes that it will be called only once per unique username.
 
 It takes:
 	- Username String.
@@ -161,23 +204,16 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	var userdata User
 	userdataptr = &userdata
 
-	// Derive necessary info from password and username
-	bytesUn := []byte(username)
-	bytesPw := []byte(password)
-	strongBytesPw := userlib.Argon2Key(bytesPw, bytesUn, uint32(userlib.AESBlockSize))
-	UPH, err := userlib.HMACEval(strongBytesPw, bytesUn) // User Password Hash
-	if err != nil {
-		return
-	}
-	UUID, err := uuid.FromBytes(UPH[:16])
+	// Derive necessary attributes from password and username
+	userAttrsPtr, err := DeriveUserAttributes(username, password)
 	if err != nil {
 		return
 	}
 
 	// Initialize the user's struct
 	userdata.Username = username
-	userdata.UPH = UPH
-	userdata.UUID = UUID
+	userdata.UPH = userAttrsPtr.UPH
+	userdata.UUID = userAttrsPtr.UUID
 	userdata.FilesOwned = make(map[uuid.UUID]bool)
 	userdata.FileUUIDs = make(map[string]uuid.UUID)
 	userdata.FileKeys = make(map[uuid.UUID][]byte)
@@ -203,20 +239,16 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	userdata.PrivateSigKey = DSsig
 
 	// Encrypt, Mac and Save the userdata on the Datastore
-	encKey := userlib.Argon2Key(append([]byte("enc_"), UPH...),
-		bytesPw, uint32(userlib.AESBlockSize))
-	hmacKey := userlib.Argon2Key(append([]byte("mac_"), UPH...),
-		bytesPw, uint32(userlib.AESBlockSize))
 	byteUserdata, err := json.Marshal(userdata)
 	if err != nil {
 		return
 	}
 	IV := userlib.RandomBytes(userlib.AESBlockSize)
-	encCyphersPtr, err := symmetricEnc(&encKey, &IV, &byteUserdata)
+	encCyphersPtr, err := SymmetricEnc(&userAttrsPtr.symEncKey, &IV, &byteUserdata)
 	if err != nil {
 		return
 	}
-	wrappedCyphersPtr, err := wrap(&hmacKey, encCyphersPtr)
+	wrappedCyphersPtr, err := Wrapper(&userAttrsPtr.hmacKey, encCyphersPtr)
 	if err != nil {
 		return
 	}
@@ -224,13 +256,13 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	if err != nil {
 		return
 	}
-	userlib.DatastoreSet(UUID, wrappedUserdataBytes)
+	userlib.DatastoreSet(userAttrsPtr.UUID, wrappedUserdataBytes)
 
 	// Debugging stuff
-	userlib.DebugMsg("UUID: %v", UUID)
-	userlib.DebugMsg("UPH: %x", UPH)
-	userlib.DebugMsg("encKey: %x", encKey)
-	userlib.DebugMsg("hmacKey: %x", hmacKey)
+	userlib.DebugMsg("UUID: %v", userAttrsPtr.UUID)
+	userlib.DebugMsg("UPH: %x", userAttrsPtr.UPH)
+	userlib.DebugMsg("symEncKey: %x", userAttrsPtr.symEncKey)
+	userlib.DebugMsg("hmacKey: %x", userAttrsPtr.hmacKey)
 	userlib.DebugMsg("wrapperHmac: %x", wrappedCyphersPtr.Hmac)
 
 	return
@@ -254,21 +286,14 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 	var userdata User
 	userdataptr = &userdata
 
-	// Derive necessary info from password and username
-	bytesUn := []byte(username)
-	bytesPw := []byte(password)
-	strongBytesPw := userlib.Argon2Key(bytesPw, bytesUn, uint32(userlib.AESBlockSize))
-	UPH, err := userlib.HMACEval(strongBytesPw, bytesUn) // User Password Hash
-	if err != nil {
-		return
-	}
-	UUID, err := uuid.FromBytes(UPH[:16])
+	// Derive necessary attributes from password and username
+	userAttrsPtr, err := DeriveUserAttributes(username, password)
 	if err != nil {
 		return
 	}
 
 	// Fetch encrypted data from Datastore
-	wrappedUserdataBytes, ok := userlib.DatastoreGet(UUID)
+	wrappedUserdataBytes, ok := userlib.DatastoreGet(userAttrsPtr.UUID)
 	if !ok {
 		err = errors.New("username not found or password is not correct")
 		return
@@ -276,19 +301,15 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 
 	// Verify and unencrypt wrapped userdata
 	var wrap Wrap
-	encKey := userlib.Argon2Key(append([]byte("enc_"), UPH...),
-		bytesPw, uint32(userlib.AESBlockSize))
-	hmacKey := userlib.Argon2Key(append([]byte("mac_"), UPH...),
-		bytesPw, uint32(userlib.AESBlockSize))
 	err = json.Unmarshal(wrappedUserdataBytes, &wrap)
 	if err != nil {
 		return
 	}
-	userdataCyphersPtr, err := unwrap(&hmacKey, &wrap)
+	userdataCyphersPtr, err := Unwrapper(&userAttrsPtr.hmacKey, &wrap)
 	if err != nil {
 		return
 	}
-	byteUserdataPtr, err := symmetricDec(&encKey, userdataCyphersPtr)
+	byteUserdataPtr, err := SymmetricDec(&userAttrsPtr.symEncKey, userdataCyphersPtr)
 	if err != nil {
 		return
 	}
@@ -300,8 +321,8 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 	// Debugging stuff
 	userlib.DebugMsg("loaded UUID: %v", userdata.UUID)
 	userlib.DebugMsg("loaded UPH: %x", userdata.UPH)
-	userlib.DebugMsg("encKey: %x", encKey)
-	userlib.DebugMsg("hmacKey: %x", hmacKey)
+	userlib.DebugMsg("symEncKey: %x", userAttrsPtr.symEncKey)
+	userlib.DebugMsg("hmacKey: %x", userAttrsPtr.hmacKey)
 	userlib.DebugMsg("wrapperHmac: %x", wrap.Hmac)
 
 	return
