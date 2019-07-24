@@ -14,6 +14,10 @@ import (
 	"testing"
 )
 
+//###################
+//## Private Tests ##
+//###################
+
 // This is a private test that only works with out implementation.
 // It tests the symmetric encryption function that handles padding
 // and implements a parallelized decryption
@@ -68,6 +72,10 @@ func TestWrapper(t *testing.T) {
 	userlib.DebugMsg("Unwrapped Enc List: %x", *unwrap_enc_list_ptr)
 }
 
+//################
+//## Real Tests ##
+//################
+
 // This assumes that each unique username will only call init once.
 func TestInitAndGet(t *testing.T) {
 	userlib.SetDebugStatus(false)
@@ -105,6 +113,7 @@ func TestInitAndGet(t *testing.T) {
 
 func TestStorage(t *testing.T) {
 	// And some more tests, because
+	_, _ = InitUser("alice", "fubar")
 	u, err := GetUser("alice", "fubar")
 	if err != nil {
 		t.Error("Failed to reload user", err)

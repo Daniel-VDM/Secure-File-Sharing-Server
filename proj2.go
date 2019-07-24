@@ -18,6 +18,17 @@ func bytesToUUID(data []byte) (ret uuid.UUID) {
 	return
 }
 
+// Simple helper to generate a random UUID that is NOT a key in the Datastore
+func GenRandUUID() (UUID uuid.UUID) {
+	for {
+		UUID = uuid.New()
+		_, ok := userlib.DatastoreGet(UUID)
+		if !ok {
+			return
+		}
+	}
+}
+
 /**
 This function symmetrically encrypts a byte slice and handles the necessary padding.
 
@@ -170,7 +181,7 @@ func DeriveUserAttributes(username string, password string) (attrsPtr *UserAttri
 
 	bUsername := []byte(username)
 	bPassword := []byte(password)
-	strongBytesPw := userlib.Argon2Key(bPassword, bUsername, uint32(userlib.AESBlockSize))
+	strongBytesPw := userlib.Argon2Key(bPassword, bUsername, uint32(userlib.AESKeySize))
 
 	attrs.UPH, err = userlib.HMACEval(strongBytesPw, bUsername) // User Password Hash
 	if err != nil {
@@ -181,9 +192,9 @@ func DeriveUserAttributes(username string, password string) (attrsPtr *UserAttri
 		return
 	}
 	attrs.symEncKey = userlib.Argon2Key(append([]byte("enc_"), attrs.UPH...),
-		bPassword, uint32(userlib.AESBlockSize))
+		bPassword, uint32(userlib.AESKeySize))
 	attrs.hmacKey = userlib.Argon2Key(append([]byte("mac_"), attrs.UPH...),
-		bPassword, uint32(userlib.AESBlockSize))
+		bPassword, uint32(userlib.AESKeySize))
 
 	attrsPtr = &attrs
 	return
@@ -240,7 +251,8 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 
 	// Encrypt, Mac and Save the userdata on the Datastore
 	byteUserdata, err := json.Marshal(userdata)
-	if err != nil {
+	if err != nil || len(byteUserdata) <= 2 {
+		err = errors.New("userdata marshal failed")
 		return
 	}
 	IV := userlib.RandomBytes(userlib.AESBlockSize)
@@ -253,7 +265,8 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 		return
 	}
 	wrappedUserdataBytes, err := json.Marshal(*wrappedCyphersPtr)
-	if err != nil {
+	if err != nil || len(wrappedUserdataBytes) <= 2 {
+		err = errors.New("wrapped userdata marshal failed")
 		return
 	}
 	userlib.DatastoreSet(userAttrsPtr.UUID, wrappedUserdataBytes)
@@ -328,17 +341,101 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 	return
 }
 
+// The structure definition for a file's metadata
+type FileMetadata struct {
+	CypherUUIDs []uuid.UUID
+}
+
 /**
 This method stores a file in the datastore and does not reveal the filename to the Datastore.
 Note that only a user (i.e: a User struct) can call this method.
+
 Note that storing a file under a name that already exists for THIS user is undefined behavior.
+But this implementation attempts to remove the UNDERLYING file.
 
 It takes:
 	- A filename string = the name of the file for THIS particular user.
 	- The byte slice of the file.
 */
 func (userdata *User) StoreFile(filename string, data []byte) {
+	fileUUID := GenRandUUID()
+	fileUUIDBytes, err := fileUUID.MarshalBinary()
+	if err != nil {
+		panic("file UUID binary marshal failed.")
+	}
+	fileEncKey := userlib.RandomBytes(userlib.AESKeySize)
+	fileHmacKey, err := userlib.HMACEval(fileEncKey, fileUUIDBytes)
+	if err != nil {
+		panic("file hmac failed.")
+	}
+	fileHmacKey = fileHmacKey[:userlib.AESKeySize]
 
+	// Attempt to delete the filename's file if it is present.
+	_, ok := userdata.FileUUIDs[filename]
+	if ok {
+		_ = userdata.DeleteFile(filename) // It's ok if it fails.
+	}
+
+	// Encrypting file data
+	IV := userlib.RandomBytes(userlib.AESBlockSize)
+	var metadata FileMetadata
+	encCyphersPtr, err := SymmetricEnc(&fileEncKey, &IV, &data)
+	if err != nil {
+		panic("file store encryption failed.")
+	}
+	// Wrap and store each cypher on the Datastore
+	metadata.CypherUUIDs = make([]uuid.UUID, len(*encCyphersPtr)-1)
+	for i := range metadata.CypherUUIDs {
+		metadata.CypherUUIDs[i] = GenRandUUID()
+		tempCyphers := [][]byte{(*encCyphersPtr)[i], (*encCyphersPtr)[i+1]}
+		wrappedCypherPtr, err := Wrapper(&fileHmacKey, &tempCyphers)
+		if err != nil {
+			panic("file cypher wrap failed.")
+		}
+		wrappedCypherBytes, err := json.Marshal(*wrappedCypherPtr)
+		if err != nil || len(wrappedCypherBytes) <= 2 {
+			panic("file cypher marshal failed.")
+		}
+		userlib.DatastoreSet(metadata.CypherUUIDs[i], wrappedCypherBytes)
+	}
+	// Encrypt, wrap and store the file's metadata on the Datastore
+	metadataBytes, err := json.Marshal(metadata)
+	if err != nil || len(metadataBytes) <= 2 {
+		panic("file metadata marshal failed.")
+	}
+	metadataEncCyphersPtr, err := SymmetricEnc(&fileEncKey, &IV, &metadataBytes)
+	if err != nil {
+		panic("file metadata encryption failed.")
+	}
+	wrappedMetadataCypherPtr, err := Wrapper(&fileHmacKey, metadataEncCyphersPtr)
+	if err != nil {
+		panic("file metadata wrap failed.")
+	}
+	wrappedMetadataBytes, err := json.Marshal(*wrappedMetadataCypherPtr)
+	if err != nil || len(wrappedMetadataBytes) <= 2 {
+		panic("file metadata marshal failed.")
+	}
+	userlib.DatastoreSet(fileUUID, wrappedMetadataBytes)
+
+	// Adding file's UUID and key to userdata
+	userdata.FileUUIDs[filename] = fileUUID
+	userdata.FileKeys[fileUUID] = fileEncKey
+}
+
+/**
+This method deletes the underlying file known as filename to the user.
+Only the file owner can delete the file.
+Note that it deletes ALL related files on the Datastore.
+
+TODO: Implement this function. It is needed for a file revoke.
+
+It takes:
+	- A filename string = the name of the file to be deleted
+It returns:
+	- A nil error if successful.
+*/
+func (userdata *User) DeleteFile(filename string) (err error) {
+	return
 }
 
 // This adds on to an existing file.
