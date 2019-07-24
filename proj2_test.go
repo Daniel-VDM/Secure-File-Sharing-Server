@@ -75,18 +75,18 @@ func TestWrapper(t *testing.T) {
 }
 
 // This assumes that each unique username will only call init once.
-func TestInit(t *testing.T) {
+func TestInitAndGet(t *testing.T) {
 	t.Log("Initialization test")
 	userlib.SetDebugStatus(true)
 	datastore := userlib.DatastoreGetMap()
 
 	u, err := InitUser("alice", "fubar")
-	z, err := InitUser("bob", "fubar")
-	if err != nil || len(datastore) == 0 {
+	ug, err := GetUser("alice", "fubar")
+	if err != nil || len(datastore) == 0 || u != ug {
 		t.Error("Failed to initialize user", err)
 		return
 	}
-	t.Log("Got user", u, z)
+	t.Log("Got user", u)
 }
 
 func TestStorage(t *testing.T) {

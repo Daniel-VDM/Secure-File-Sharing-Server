@@ -5,6 +5,8 @@
       <w>hmacs</w>
       <w>parallelized</w>
       <w>struct</w>
+      <w>unencrypt</w>
+      <w>userdata</w>
     </words>
   </dictionary>
 </component>

@@ -3,50 +3,14 @@ package main // Might need to change package to proj2 to pass auto grader
 //package proj2
 
 import (
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"github.com/google/uuid"
 	"github.com/ryanleh/cs161-p2/userlib"
 	_ "strconv"
-	"strings"
 )
 
-func someUsefulThings() {
-	// Creates a random UUID
-	userlib.DebugPrint = true
-	f := uuid.New()
-	userlib.DebugMsg("UUID as string:%v", f.String())
-
-	// Example of writing over a byte of f
-	f[0] = 10
-	userlib.DebugMsg("UUID as string:%v", f.String())
-
-	// takes a sequence of bytes and renders as hex
-	h := hex.EncodeToString([]byte("fubar"))
-	userlib.DebugMsg("The hex: %v", h)
-
-	// Marshals data into a JSON representation
-	// Will actually work with go structures as well
-	d, _ := json.Marshal(f)
-	userlib.DebugMsg("The json data: %v", string(d))
-	var g uuid.UUID
-	json.Unmarshal(d, &g)
-	userlib.DebugMsg("Unmashaled data %v", g.String())
-
-	// This creates an error type
-	userlib.DebugMsg("Creation of error %v", errors.New(strings.ToTitle("This is an error")))
-
-	// And a random RSA key.  In this case, ignoring the error
-	// return value
-	var pk userlib.PKEEncKey
-	var sk userlib.PKEDecKey
-	pk, sk, _ = userlib.PKEKeyGen()
-	userlib.DebugMsg("Key is %v, %v", pk, sk)
-}
-
-// Helper function: Takes the first 16 bytes and
-// converts it into the UUID type
+// Simple helper function to convert byte slices to UUIDs
 func bytesToUUID(data []byte) (ret uuid.UUID) {
 	for x := range ret {
 		ret[x] = data[x]
@@ -75,11 +39,13 @@ func symmetricEnc(key *[]byte, iv *[]byte, data *[]byte) (cyphers *[][]byte, err
 	pad[0] = 1
 
 	encSlice := userlib.SymEnc(*key, *iv, append(*data, pad...))
+
 	cyphersCount := len(encSlice) / userlib.AESBlockSize
 	cyphersSlice := make([][]byte, cyphersCount)
 	for i := 0; i < cyphersCount; i++ {
 		cyphersSlice[i] = encSlice[i*userlib.AESBlockSize : (i+1)*userlib.AESBlockSize]
 	}
+
 	cyphers = &cyphersSlice
 	return
 }
@@ -101,6 +67,7 @@ func symmetricDec(key *[]byte, cyphers *[][]byte) (data *[]byte, err error) {
 	}
 
 	decSlice := userlib.SymDec(*key, cypher)
+
 	var padStart uint
 	for padStart = uint(len(decSlice) - 1); padStart >= 0; padStart-- {
 		if decSlice[padStart] == 1 {
@@ -108,6 +75,7 @@ func symmetricDec(key *[]byte, cyphers *[][]byte) (data *[]byte, err error) {
 		}
 	}
 	decSlice = decSlice[:padStart]
+
 	data = &decSlice
 	return
 }
@@ -161,7 +129,7 @@ func unwrap(key *[]byte, wrap *Wrap) (cyphers *[][]byte, err error) {
 	if !userlib.HMACEqual(wrap.Hmac, currHMAC) {
 		err = errors.New("failed to unwrap")
 	} else {
-		cyphers = &wrap.Cyphers
+		cyphers = &wrap.Cyphers // Don't return cyphers if hmac is not correct.
 	}
 	return
 }
@@ -183,13 +151,16 @@ This is the main function to create a new user. The function assumes that it wil
 be called only once per unique username.
 
 It takes:
-	- Username String
-	- Password String
+	- Username String.
+	- Password String.
 It returns:
 	- A pointer to the User struct that was created and stored on the Datastore.
 	- A nil error if successful.
 */
 func InitUser(username string, password string) (userdataptr *User, err error) {
+	var userdata User
+	userdataptr = &userdata
+
 	// Derive necessary info from password and username
 	bytesUn := []byte(username)
 	bytesPw := []byte(password)
@@ -204,7 +175,6 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	}
 
 	// Initialize the user's struct
-	var userdata User
 	userdata.Username = username
 	userdata.UPH = UPH
 	userdata.UUID = UUID
@@ -256,18 +226,87 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	}
 	userlib.DatastoreSet(UUID, wrappedUserdataBytes)
 
-	userdataptr = &userdata
+	// Debugging stuff
+	userlib.DebugMsg("UUID: %v", UUID)
+	userlib.DebugMsg("UPH: %x", UPH)
+	userlib.DebugMsg("encKey: %x", encKey)
+	userlib.DebugMsg("hmacKey: %x", hmacKey)
+	userlib.DebugMsg("wrapperHmac: %x", wrappedCyphersPtr.Hmac)
+
 	return
 }
 
-// This fetches the user information from the Datastore.  It should
-// fail with an error if the user/password is invalid, or if the user
-// data was corrupted, or if the user can't be found.
+/**
+This is the main function to fetch a user from the Datastore.
+It returns a non nil error when:
+	* user/password is invalid.
+	* user data was corrupted.
+	* user can't be found.
+
+It takes:
+	- Username String.
+	- Password String.
+It returns:
+	- A pointer to the User struct that was stored on the Datastore.
+	- A nil error if successful.
+*/
 func GetUser(username string, password string) (userdataptr *User, err error) {
 	var userdata User
 	userdataptr = &userdata
 
-	return userdataptr, nil
+	// Derive necessary info from password and username
+	bytesUn := []byte(username)
+	bytesPw := []byte(password)
+	strongBytesPw := userlib.Argon2Key(bytesPw, bytesUn, uint32(userlib.AESBlockSize))
+	UPH, err := userlib.HMACEval(strongBytesPw, bytesUn) // User Password Hash
+	if err != nil {
+		return
+	}
+	UUID, err := uuid.FromBytes(UPH[:16])
+	if err != nil {
+		return
+	}
+
+	// Fetch encrypted data from Datastore
+	wrappedUserdataBytes, ok := userlib.DatastoreGet(UUID)
+	if !ok {
+		err = errors.New("username not found or password is not correct")
+		return
+	}
+
+	// Verify and unencrypt wrapped userdata
+	var wrap Wrap
+	encKey := userlib.Argon2Key(append([]byte("enc_"), UPH...),
+		bytesPw, uint32(userlib.AESBlockSize))
+	hmacKey := userlib.Argon2Key(append([]byte("mac_"), UPH...),
+		bytesPw, uint32(userlib.AESBlockSize))
+	err = json.Unmarshal(wrappedUserdataBytes, &wrap)
+	if err != nil {
+		return
+	}
+	userdataCyphersPtr, err := unwrap(&hmacKey, &wrap)
+	if err != nil {
+		return
+	}
+	byteUserdataPtr, err := symmetricDec(&encKey, userdataCyphersPtr)
+	if err != nil {
+		return
+	}
+	err = json.Unmarshal(*byteUserdataPtr, userdataptr)
+	if err != nil {
+		return
+	}
+
+	// Debugging stuff
+	userlib.DebugMsg("UUID: %v", UUID)
+	userlib.DebugMsg("loaded UUID: %v", userdata.UUID)
+	userlib.DebugMsg("UPH: %x", UPH)
+	userlib.DebugMsg("loaded UPH: %x", userdata.UPH)
+	userlib.DebugMsg("encKey: %x", encKey)
+	userlib.DebugMsg("hmacKey: %x", hmacKey)
+	userlib.DebugMsg("wrapperHmac: %x", wrap.Hmac)
+
+	return
 }
 
 // This stores a file in the datastore.
