@@ -307,11 +307,17 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 	return
 }
 
-// This stores a file in the datastore.
-//
-// The name of the file should NOT be revealed to the datastore!
+/**
+This method stores a file in the datastore and does not reveal the filename to the Datastore.
+Note that only a user (i.e: a User struct) can call this method.
+Note that storing a file under a name that already exists for THIS user is undefined behavior.
+
+It takes:
+	- A filename string = the name of the file for THIS particular user.
+	- The byte slice of the file.
+*/
 func (userdata *User) StoreFile(filename string, data []byte) {
-	return
+
 }
 
 // This adds on to an existing file.
@@ -319,7 +325,6 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 // Append should be efficient, you shouldn't rewrite or reencrypt the
 // existing file, but only whatever additional information and
 // metadata you need.
-
 func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 	return
 }
