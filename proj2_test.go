@@ -77,9 +77,17 @@ func TestWrapper(t *testing.T) {
 //################
 
 // This assumes that each unique username will only call init once.
+// TODO: refactor to make this readable.
 func TestInitAndGet(t *testing.T) {
+	// MAKE SURE TO CLEAR STORES FOR EACH TEST
+	userlib.DatastoreClear()
+	userlib.KeystoreClear()
 	userlib.SetDebugStatus(false)
 	datastore := userlib.DatastoreGetMap()
+	_ = datastore
+
+	u2, err := InitUser("bob", "fubar")
+	_ = u2
 
 	// Basic init and get test
 	u, err := InitUser("alice", "fubar")
@@ -91,7 +99,20 @@ func TestInitAndGet(t *testing.T) {
 		return
 	}
 	userlib.DebugMsg("\n")
+
+	bad, _ := userlib.DatastoreGet(u2.UUID)
+	userlib.DatastoreSet(u.UUID, bad)
+
 	ug, err := GetUser("alice", "fubar")
+	if err == nil {
+		t.Error("Datastore was corrupted for alice but still got user.")
+		return
+	} else if len(datastore) == 0 {
+		t.Error("Datastore is empty when there should be 1 element.")
+		return
+	}
+
+	ug, err = GetUser("bob", "fubar")
 	if err != nil {
 		t.Error(err)
 		return
@@ -101,7 +122,7 @@ func TestInitAndGet(t *testing.T) {
 	}
 
 	// Make sure the Init struct equal the fetch struct for the same user
-	uBytes, _ := json.Marshal(u)
+	uBytes, _ := json.Marshal(u2)
 	ugBytes, _ := json.Marshal(ug)
 	for i := range uBytes {
 		if uBytes[i] != ugBytes[i] {
@@ -112,11 +133,16 @@ func TestInitAndGet(t *testing.T) {
 }
 
 func TestStorage(t *testing.T) {
-	// And some more tests, because
-	_, _ = InitUser("alice", "fubar")
-	u, err := GetUser("alice", "fubar")
+	// MAKE SURE TO CLEAR STORES FOR EACH TEST
+	userlib.DatastoreClear()
+	userlib.KeystoreClear()
+	userlib.SetDebugStatus(false)
+	datastore := userlib.DatastoreGetMap()
+	_ = datastore
+
+	u, err := InitUser("alice", "fubar")
 	if err != nil {
-		t.Error("Failed to reload user", err)
+		t.Error(err)
 		return
 	}
 	t.Log("Loaded user", u)
@@ -124,6 +150,8 @@ func TestStorage(t *testing.T) {
 	v := []byte("This is a test")
 	u.StoreFile("file1", v)
 
+	// Get user to check for userdata update.
+	u, err = GetUser("alice", "fubar")
 	v2, err2 := u.LoadFile("file1")
 	if err2 != nil {
 		t.Error("Failed to upload and download", err2)

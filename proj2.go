@@ -145,19 +145,13 @@ func Unwrapper(key *[]byte, wrap *Wrap) (cyphers *[][]byte, err error) {
 	return
 }
 
-// The structure definition for the DeriveUserAttributes function.
-type UserAttributes struct {
-	UUID      uuid.UUID
-	UPH       []byte
-	symEncKey []byte
-	hmacKey   []byte
-}
-
 // The structure definition for a user record
 type User struct {
 	Username      string
 	UPH           []byte
 	UUID          uuid.UUID
+	symEncKey     []byte
+	hmacKey       []byte
 	PrivateDecKey userlib.PKEDecKey
 	PrivateSigKey userlib.DSSignKey
 	FilesOwned    map[uuid.UUID]bool
@@ -167,36 +161,73 @@ type User struct {
 
 /**
 This is a helper function for the Init and Get user functions.
-It derives the keys, hashes and UUID for a user given their username and password.
+It derives the keys, hashes and UUID for a user given their username and password
+and saves it to the userdata User struct.
 
 It takes:
 	- Username String.
 	- Password String.
+    - Pointer to the userdata User struct.
 It returns:
-	- A pointer to a UserAttributes struct that has all of the derived attributes.
 	- A nil error if successful.
 */
-func DeriveUserAttributes(username string, password string) (attrsPtr *UserAttributes, err error) {
-	var attrs UserAttributes
-
+func DeriveAndSaveUserAttributes(username string, password string, userdata *User) (err error) {
 	bUsername := []byte(username)
 	bPassword := []byte(password)
 	strongBytesPw := userlib.Argon2Key(bPassword, bUsername, uint32(userlib.AESKeySize))
 
-	attrs.UPH, err = userlib.HMACEval(strongBytesPw, bUsername) // User Password Hash
+	userdata.UPH, err = userlib.HMACEval(strongBytesPw, bUsername) // User Password Hash
 	if err != nil {
 		return
 	}
-	attrs.UUID, err = uuid.FromBytes(attrs.UPH[:16])
+	userdata.UUID, err = uuid.FromBytes(userdata.UPH[:16])
 	if err != nil {
 		return
 	}
-	attrs.symEncKey = userlib.Argon2Key(append([]byte("enc_"), attrs.UPH...),
+	userdata.symEncKey = userlib.Argon2Key(append([]byte("enc_"), userdata.UPH...),
 		bPassword, uint32(userlib.AESKeySize))
-	attrs.hmacKey = userlib.Argon2Key(append([]byte("mac_"), attrs.UPH...),
+	userdata.hmacKey = userlib.Argon2Key(append([]byte("mac_"), userdata.UPH...),
 		bPassword, uint32(userlib.AESKeySize))
 
-	attrsPtr = &attrs
+	return
+}
+
+/**
+This is a helper function to save a User struct to the Datastore.
+
+It takes:
+	- Pointer to the User struct to be saved (contains all the info needed).
+It returns:
+	- A nil error if successful.
+*/
+func SaveUser(userdata *User) (err error) {
+	byteUserdata, err := json.Marshal(userdata)
+	if err != nil || len(byteUserdata) <= 2 {
+		err = errors.New("userdata marshal failed")
+		return
+	}
+	IV := userlib.RandomBytes(userlib.AESBlockSize)
+	encCyphersPtr, err := SymmetricEnc(&userdata.symEncKey, &IV, &byteUserdata)
+	if err != nil {
+		return
+	}
+	wrappedCyphersPtr, err := Wrapper(&userdata.hmacKey, encCyphersPtr)
+	if err != nil {
+		return
+	}
+	wrappedUserdataBytes, err := json.Marshal(*wrappedCyphersPtr)
+	if err != nil || len(wrappedUserdataBytes) <= 2 {
+		err = errors.New("wrapped userdata marshal failed")
+		return
+	}
+	userlib.DatastoreSet(userdata.UUID, wrappedUserdataBytes)
+
+	// Debugging stuff
+	userlib.DebugMsg("UUID: %v", userdata.UUID)
+	userlib.DebugMsg("UPH: %x", userdata.UPH)
+	userlib.DebugMsg("symEncKey: %x", userdata.symEncKey)
+	userlib.DebugMsg("hmacKey: %x", userdata.hmacKey)
+	userlib.DebugMsg("wrapperHmac: %x", wrappedCyphersPtr.Hmac)
 	return
 }
 
@@ -215,16 +246,13 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	var userdata User
 	userdataptr = &userdata
 
-	// Derive necessary attributes from password and username
-	userAttrsPtr, err := DeriveUserAttributes(username, password)
+	err = DeriveAndSaveUserAttributes(username, password, &userdata)
 	if err != nil {
 		return
 	}
 
-	// Initialize the user's struct
+	// Initialize the rest of the userdata.
 	userdata.Username = username
-	userdata.UPH = userAttrsPtr.UPH
-	userdata.UUID = userAttrsPtr.UUID
 	userdata.FilesOwned = make(map[uuid.UUID]bool)
 	userdata.FileUUIDs = make(map[string]uuid.UUID)
 	userdata.FileKeys = make(map[uuid.UUID][]byte)
@@ -249,35 +277,7 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	userdata.PrivateDecKey = PKdec
 	userdata.PrivateSigKey = DSsig
 
-	// Encrypt, Mac and Save the userdata on the Datastore
-	byteUserdata, err := json.Marshal(userdata)
-	if err != nil || len(byteUserdata) <= 2 {
-		err = errors.New("userdata marshal failed")
-		return
-	}
-	IV := userlib.RandomBytes(userlib.AESBlockSize)
-	encCyphersPtr, err := SymmetricEnc(&userAttrsPtr.symEncKey, &IV, &byteUserdata)
-	if err != nil {
-		return
-	}
-	wrappedCyphersPtr, err := Wrapper(&userAttrsPtr.hmacKey, encCyphersPtr)
-	if err != nil {
-		return
-	}
-	wrappedUserdataBytes, err := json.Marshal(*wrappedCyphersPtr)
-	if err != nil || len(wrappedUserdataBytes) <= 2 {
-		err = errors.New("wrapped userdata marshal failed")
-		return
-	}
-	userlib.DatastoreSet(userAttrsPtr.UUID, wrappedUserdataBytes)
-
-	// Debugging stuff
-	userlib.DebugMsg("UUID: %v", userAttrsPtr.UUID)
-	userlib.DebugMsg("UPH: %x", userAttrsPtr.UPH)
-	userlib.DebugMsg("symEncKey: %x", userAttrsPtr.symEncKey)
-	userlib.DebugMsg("hmacKey: %x", userAttrsPtr.hmacKey)
-	userlib.DebugMsg("wrapperHmac: %x", wrappedCyphersPtr.Hmac)
-
+	err = SaveUser(&userdata)
 	return
 }
 
@@ -297,16 +297,14 @@ It returns:
 */
 func GetUser(username string, password string) (userdataptr *User, err error) {
 	var userdata User
-	userdataptr = &userdata
 
-	// Derive necessary attributes from password and username
-	userAttrsPtr, err := DeriveUserAttributes(username, password)
+	err = DeriveAndSaveUserAttributes(username, password, &userdata)
 	if err != nil {
 		return
 	}
 
 	// Fetch encrypted data from Datastore
-	wrappedUserdataBytes, ok := userlib.DatastoreGet(userAttrsPtr.UUID)
+	wrappedUserdataBytes, ok := userlib.DatastoreGet(userdata.UUID)
 	if !ok {
 		err = errors.New("username not found or password is not correct")
 		return
@@ -318,15 +316,15 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 	if err != nil {
 		return
 	}
-	userdataCyphersPtr, err := Unwrapper(&userAttrsPtr.hmacKey, &wrap)
+	userdataCyphersPtr, err := Unwrapper(&userdata.hmacKey, &wrap)
 	if err != nil {
 		return
 	}
-	byteUserdataPtr, err := SymmetricDec(&userAttrsPtr.symEncKey, userdataCyphersPtr)
+	byteUserdataPtr, err := SymmetricDec(&userdata.symEncKey, userdataCyphersPtr)
 	if err != nil {
 		return
 	}
-	err = json.Unmarshal(*byteUserdataPtr, userdataptr)
+	err = json.Unmarshal(*byteUserdataPtr, &userdata) // overwrite the userdata being used.
 	if err != nil {
 		return
 	}
@@ -334,10 +332,11 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 	// Debugging stuff
 	userlib.DebugMsg("loaded UUID: %v", userdata.UUID)
 	userlib.DebugMsg("loaded UPH: %x", userdata.UPH)
-	userlib.DebugMsg("symEncKey: %x", userAttrsPtr.symEncKey)
-	userlib.DebugMsg("hmacKey: %x", userAttrsPtr.hmacKey)
+	userlib.DebugMsg("symEncKey: %x", userdata.symEncKey)
+	userlib.DebugMsg("hmacKey: %x", userdata.hmacKey)
 	userlib.DebugMsg("wrapperHmac: %x", wrap.Hmac)
 
+	userdataptr = &userdata
 	return
 }
 
@@ -358,6 +357,7 @@ It takes:
 	- The byte slice of the file.
 */
 func (userdata *User) StoreFile(filename string, data []byte) {
+	// Generate file keys and UUIDs
 	fileUUID := GenRandUUID()
 	fileUUIDBytes, err := fileUUID.MarshalBinary()
 	if err != nil {
@@ -370,7 +370,7 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 	}
 	fileHmacKey = fileHmacKey[:userlib.AESKeySize]
 
-	// Attempt to delete the filename's file if it is present.
+	// Attempt to delete the filename's underlying file if it is present.
 	_, ok := userdata.FileUUIDs[filename]
 	if ok {
 		_ = userdata.DeleteFile(filename) // It's ok if it fails.
@@ -420,6 +420,11 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 	// Adding file's UUID and key to userdata
 	userdata.FileUUIDs[filename] = fileUUID
 	userdata.FileKeys[fileUUID] = fileEncKey
+
+	err = SaveUser(userdata)
+	if err != nil {
+		panic(err)
+	}
 }
 
 /**
@@ -459,6 +464,37 @@ It returns:
 	- A nil error if successful.
 */
 func (userdata *User) LoadFile(filename string) (data []byte, err error) {
+	// Setup & derive file attributes
+	fileUUID, ok := userdata.FileUUIDs[filename]
+	if !ok {
+		err = errors.New("file not found")
+		return
+	}
+	fileUUIDBytes, err := fileUUID.MarshalBinary()
+	if err != nil {
+		err = errors.New("file UUID binary marshal failed")
+		return
+	}
+	fileEncKey, ok := userdata.FileKeys[fileUUID]
+	if !ok {
+		err = errors.New("file key not found")
+		return
+	}
+	fileHmacKey, err := userlib.HMACEval(fileEncKey, fileUUIDBytes)
+	if err != nil {
+		return
+	}
+
+	// Fetch and unencrypt file's metadata
+	wrappedMetadataBytes, ok := userlib.DatastoreGet(fileUUID)
+	if !ok {
+		err = errors.New("file's metadata not found on Datastore")
+		return
+	}
+
+	//TODO: finish this up...
+	_, _ = fileHmacKey, wrappedMetadataBytes
+
 	return
 }
 
