@@ -22,7 +22,9 @@ Real tests that should work for all implementations.
 func TestInitAndGet(t *testing.T) {
 	userlib.SetDebugStatus(false)
 
-	// Basic init and get user test.
+	/**
+	Basic init and get user test.
+	*/
 	userlib.DatastoreClear()
 	userlib.KeystoreClear()
 	datastore := userlib.DatastoreGetMap()
@@ -39,6 +41,7 @@ func TestInitAndGet(t *testing.T) {
 		t.Error(err)
 		return
 	}
+
 	bobBytes, _ := json.Marshal(bob)
 	getBobBytes, _ := json.Marshal(getBob)
 	if !reflect.DeepEqual(bobBytes, getBobBytes) {
@@ -46,7 +49,9 @@ func TestInitAndGet(t *testing.T) {
 		return
 	}
 
-	// Corrupted datastore test.
+	/**
+	Corrupted datastore test.
+	*/
 	userlib.DatastoreClear()
 	userlib.KeystoreClear()
 	datastore = userlib.DatastoreGetMap()
@@ -63,6 +68,7 @@ func TestInitAndGet(t *testing.T) {
 		t.Error(err)
 		return
 	}
+
 	var keys []userlib.UUID
 	var vals [][]byte
 	for k, v := range datastore {
@@ -73,6 +79,7 @@ func TestInitAndGet(t *testing.T) {
 	for i := 1; i < len(keys); i++ {
 		userlib.DatastoreSet(keys[i], vals[0])
 	}
+
 	_, err = GetUser("alice", "fubar")
 	if err == nil {
 		t.Error("Datastore was corrupted for alice but still got user.")
@@ -90,7 +97,9 @@ func TestInitAndGet(t *testing.T) {
 func TestStorage(t *testing.T) {
 	userlib.SetDebugStatus(false)
 
-	// Basic functionality test with edge cases.
+	/**
+	Basic functionality test with edge cases.
+	*/
 	userlib.DatastoreClear()
 	userlib.KeystoreClear()
 	datastore := userlib.DatastoreGetMap()

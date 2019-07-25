@@ -464,6 +464,7 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 	// Adding file's UUID and key to userdata
 	userdata.FileUUIDs[filename] = fileUUID
 	userdata.FileKeys[fileUUID] = fileEncKey
+	userdata.FilesOwned[fileUUID] = true
 
 	err = userdata.SaveUser()
 	if err != nil {
@@ -560,6 +561,35 @@ func (userdata *User) DeleteFile(filename string) (err error) {
 // existing file, but only whatever additional information and
 // metadata you need.
 func (userdata *User) AppendFile(filename string, data []byte) (err error) {
+	// Setup & derive file attributes
+	fileUUID, ok := userdata.FileUUIDs[filename]
+	if !ok {
+		return // Do NOT raise an error if the file is not found.
+	}
+	fileUUIDBytes, err := fileUUID.MarshalBinary()
+	if err != nil {
+		err = errors.New("file UUID binary marshal failed")
+		return
+	}
+	fileEncKey, ok := userdata.FileKeys[fileUUID]
+	if !ok {
+		err = errors.New("file key not found")
+		return
+	}
+	fileHmacKey, err := userlib.HMACEval(fileEncKey, fileUUIDBytes)
+	if err != nil {
+		return
+	}
+	fileHmacKey = fileHmacKey[:userlib.AESKeySize]
+
+	// Fetch, verify and unencrypt file's data
+	metadataPtr, err := GetFileMetadata(&fileUUID, &fileHmacKey, &fileEncKey)
+	if err != nil {
+		return
+	}
+	_ = metadataPtr
+
+	// TODO: finish this up.
 	return
 }
 
