@@ -19,7 +19,6 @@ Struct Defs:
 type User struct {
 	Username      string
 	UPH           []byte
-	UUID          uuid.UUID
 	symEncKey     []byte
 	hmacKey       []byte
 	PrivateDecKey userlib.PKEDecKey
@@ -39,6 +38,9 @@ type Wrap struct {
 type FileMetadata struct {
 	CypherUUIDs []uuid.UUID
 }
+
+// TODO wrapper save method & get FUNCTION    (Have save method  & function only take UUIDs)
+// TODO FileMetadata save method   (Have save method UUIDs and 2 Keys) - Needs to be encrypted btw
 
 /**
 Helper Functions:
@@ -192,16 +194,8 @@ It returns:
 func DeriveAndSaveUserAttributes(username *string, password *string, userdata *User) (err error) {
 	bUsername := []byte(*username)
 	bPassword := []byte(*password)
-	strongBytesPw := userlib.Argon2Key(bPassword, bUsername, uint32(userlib.AESKeySize))
 
-	userdata.UPH, err = userlib.HMACEval(strongBytesPw, bUsername) // User Password Hash
-	if err != nil {
-		return
-	}
-	userdata.UUID, err = uuid.FromBytes(userdata.UPH[:16])
-	if err != nil {
-		return
-	}
+	userdata.UPH = userlib.Argon2Key(bPassword, bUsername, 32) // User Password Hash
 	userdata.symEncKey = userlib.Argon2Key(append([]byte("enc_"), userdata.UPH...),
 		bPassword, uint32(userlib.AESKeySize))
 	userdata.hmacKey = userlib.Argon2Key(append([]byte("mac_"), userdata.UPH...),
@@ -247,6 +241,8 @@ func GetFileMetadata(fileUUID *uuid.UUID, fileHmacKey *[]byte, fileEncKey *[]byt
 	return
 }
 
+// TODO Metadata methods here...
+
 /**
 User Init and Get:
 */
@@ -270,6 +266,14 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	if err != nil {
 		return
 	}
+	rehashedUPH, err := userlib.HMACEval(userdata.UPH, []byte(username))
+	if err != nil {
+		return
+	}
+	UUID, err := uuid.FromBytes(rehashedUPH[:16])
+	if err != nil {
+		return
+	}
 
 	// Initialize the rest of the userdata.
 	userdata.Username = username
@@ -286,18 +290,18 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	if err != nil {
 		return
 	}
-	err = userlib.KeystoreSet("enc_"+userdata.UUID.String(), PKenc)
+	err = userlib.KeystoreSet("enc_"+username, PKenc)
 	if err != nil {
 		return
 	}
-	err = userlib.KeystoreSet("vfy_"+userdata.UUID.String(), DSvfy)
+	err = userlib.KeystoreSet("vfy_"+username, DSvfy)
 	if err != nil {
 		return
 	}
 	userdata.PrivateDecKey = PKdec
 	userdata.PrivateSigKey = DSsig
 
-	err = userdata.SaveUser()
+	err = userdata.SaveUser(UUID)
 	return
 }
 
@@ -322,9 +326,17 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 	if err != nil {
 		return
 	}
+	rehashedUPH, err := userlib.HMACEval(userdata.UPH, []byte(username))
+	if err != nil {
+		return
+	}
+	UUID, err := uuid.FromBytes(rehashedUPH[:16])
+	if err != nil {
+		return
+	}
 
 	// Fetch encrypted data from Datastore
-	wrappedUserdataBytes, ok := userlib.DatastoreGet(userdata.UUID)
+	wrappedUserdataBytes, ok := userlib.DatastoreGet(UUID)
 	if !ok {
 		err = errors.New("username not found or password is not correct")
 		return
@@ -365,7 +377,7 @@ It takes:
 It returns:
 	- A nil error if successful.
 */
-func (userdata *User) SaveUser() (err error) {
+func (userdata *User) SaveUser(UUID uuid.UUID) (err error) {
 	byteUserdata, err := json.Marshal(userdata)
 	if err != nil || len(byteUserdata) <= 2 {
 		err = errors.New("userdata marshal failed")
@@ -385,7 +397,7 @@ func (userdata *User) SaveUser() (err error) {
 		err = errors.New("wrapped userdata marshal failed")
 		return
 	}
-	userlib.DatastoreSet(userdata.UUID, wrappedUserdataBytes)
+	userlib.DatastoreSet(UUID, wrappedUserdataBytes)
 	return
 }
 
@@ -466,10 +478,78 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 	userdata.FileKeys[fileUUID] = fileEncKey
 	userdata.FilesOwned[fileUUID] = true
 
-	err = userdata.SaveUser()
+	// Save the userdata to the Datastore
+	rehashedUPH, err := userlib.HMACEval(userdata.UPH, []byte(userdata.Username))
+	if err != nil {
+		return
+	}
+	userUUID, err := uuid.FromBytes(rehashedUPH[:16])
+	if err != nil {
+		return
+	}
+	err = userdata.SaveUser(userUUID)
 	if err != nil {
 		panic(err)
 	}
+}
+
+/**
+This method efficiently appends data to the underlying file known as filename the user.
+Note that this is very similar to the load file method by design.
+Note that this raises an error if the filename is not found.
+
+It takes:
+	- A filename string = the name of the file for THIS particular user.
+	- A data byte slice to be appended.
+It returns:
+	- A nil error if successful.
+*/
+func (userdata *User) AppendFile(filename string, data []byte) (err error) {
+	// Setup & derive file attributes
+	fileUUID, ok := userdata.FileUUIDs[filename]
+	if !ok {
+		err = errors.New("file not found for the append")
+		return
+	}
+	fileUUIDBytes, err := fileUUID.MarshalBinary()
+	if err != nil {
+		err = errors.New("file UUID binary marshal failed")
+		return
+	}
+	fileEncKey, ok := userdata.FileKeys[fileUUID]
+	if !ok {
+		err = errors.New("file key not found")
+		return
+	}
+	fileHmacKey, err := userlib.HMACEval(fileEncKey, fileUUIDBytes)
+	if err != nil {
+		return
+	}
+	fileHmacKey = fileHmacKey[:userlib.AESKeySize]
+
+	// Fetch, verify and unencrypt file's data
+	metadataPtr, err := GetFileMetadata(&fileUUID, &fileHmacKey, &fileEncKey)
+	if err != nil {
+		return
+	}
+	_ = metadataPtr
+
+	// TODO: finish this up.
+
+	// Save the userdata to the Datastore
+	rehashedUPH, err := userlib.HMACEval(userdata.UPH, []byte(userdata.Username))
+	if err != nil {
+		return
+	}
+	userUUID, err := uuid.FromBytes(rehashedUPH[:16])
+	if err != nil {
+		return
+	}
+	err = userdata.SaveUser(userUUID)
+	if err != nil {
+		panic(err)
+	}
+	return
 }
 
 /**
@@ -552,51 +632,6 @@ It returns:
 	- A nil error if successful.
 */
 func (userdata *User) DeleteFile(filename string) (err error) {
-	return
-}
-
-/**
-This method efficiently appends data to the underlying file known as filename the user.
-Note that this is very similar to the load file method by design.
-Note that this raises an error if the filename is not found.
-
-It takes:
-	- A filename string = the name of the file for THIS particular user.
-	- A data byte slice to be appended.
-It returns:
-	- A nil error if successful.
-*/
-func (userdata *User) AppendFile(filename string, data []byte) (err error) {
-	// Setup & derive file attributes
-	fileUUID, ok := userdata.FileUUIDs[filename]
-	if !ok {
-		err = errors.New("file not found for the append")
-		return
-	}
-	fileUUIDBytes, err := fileUUID.MarshalBinary()
-	if err != nil {
-		err = errors.New("file UUID binary marshal failed")
-		return
-	}
-	fileEncKey, ok := userdata.FileKeys[fileUUID]
-	if !ok {
-		err = errors.New("file key not found")
-		return
-	}
-	fileHmacKey, err := userlib.HMACEval(fileEncKey, fileUUIDBytes)
-	if err != nil {
-		return
-	}
-	fileHmacKey = fileHmacKey[:userlib.AESKeySize]
-
-	// Fetch, verify and unencrypt file's data
-	metadataPtr, err := GetFileMetadata(&fileUUID, &fileHmacKey, &fileEncKey)
-	if err != nil {
-		return
-	}
-	_ = metadataPtr
-
-	// TODO: finish this up.
 	return
 }
 
