@@ -14,151 +14,101 @@ import (
 	"testing"
 )
 
-//###################
-//## Private Tests ##
-//###################
-
-// This is a private test that only works with out implementation.
-// It tests the symmetric encryption function that handles padding
-// and implements a parallelized decryption
-func TestSymEncDec(t *testing.T) {
-	userlib.DebugPrint = false
-	for _, i := range []int{-4, -1, 0, 1, 5} {
-		userlib.DebugMsg("i = %d", i)
-		IV := userlib.RandomBytes(userlib.AESBlockSize)
-		key := userlib.RandomBytes(userlib.AESBlockSize)
-		msg := userlib.RandomBytes(userlib.AESBlockSize*10 + i)
-		userlib.DebugMsg("IV: %x", IV)
-		userlib.DebugMsg("Msg: %x", msg)
-
-		enc_list_ptr, _ := SymmetricEnc(&key, &IV, &msg)
-		userlib.DebugMsg("Enc List: %x", *enc_list_ptr)
-
-		dec_list, _ := SymmetricDec(&key, enc_list_ptr)
-		userlib.DebugMsg("Dec List: %x", *dec_list)
-
-		for i := range *dec_list {
-			if (*dec_list)[i] != msg[i] {
-				t.Error("Encrypted msg doesnt match decrypted msg")
-			}
-		}
-
-		userlib.DebugMsg("\n")
-	}
-}
-
-// This is a private test that only works with our implementation.
-// It tests the Wrap for things being stored on the Datastore.
-func TestWrapper(t *testing.T) {
-	userlib.DebugPrint = false
-	IV := userlib.RandomBytes(userlib.AESBlockSize)
-	key := userlib.RandomBytes(userlib.AESBlockSize)
-	msg := userlib.RandomBytes(userlib.AESBlockSize * 10000000)
-	enc_list_ptr, _ := SymmetricEnc(&key, &IV, &msg)
-	wrap_ptr, err := Wrapper(&key, enc_list_ptr)
-	if err != nil {
-		userlib.DebugMsg("%v", err)
-		t.Error("Failed to Wrapper")
-	}
-	//wrap_ptr.Cyphers[1][0] = wrap_ptr.Cyphers[1][8] // Uncomment to for a fail check.
-	//wrap_ptr.Hmac[0] = wrap_ptr.Hmac[8] // Uncomment to for a fail check.
-	unwrap_enc_list_ptr, err := Unwrapper(&key, wrap_ptr)
-	if err != nil {
-		userlib.DebugMsg("%v", err)
-		t.Error("Failed to Unwrapper")
-		return
-	}
-	userlib.DebugMsg("Enc List: %x", *enc_list_ptr)
-	userlib.DebugMsg("Unwrapped Enc List: %x", *unwrap_enc_list_ptr)
-}
-
-//################
-//## Real Tests ##
-//################
+/**
+Real tests that should work for all implementations.
+*/
 
 // This assumes that each unique username will only call init once.
-// TODO: refactor to make this readable.
 func TestInitAndGet(t *testing.T) {
-	// MAKE SURE TO CLEAR STORES FOR EACH TEST
+	userlib.SetDebugStatus(false)
+
+	// Basic init and get user test.
 	userlib.DatastoreClear()
 	userlib.KeystoreClear()
-	userlib.SetDebugStatus(false)
 	datastore := userlib.DatastoreGetMap()
-	_ = datastore
+	keystore := userlib.KeystoreGetMap()
+	_, _ = datastore, keystore
 
-	u2, err := InitUser("bob", "fubar")
-	_ = u2
-
-	// Basic init and get test
-	u, err := InitUser("alice", "fubar")
+	bob, err := InitUser("bob", "fubar")
 	if err != nil {
 		t.Error(err)
 		return
-	} else if len(datastore) == 0 {
-		t.Error("Datastore is empty when there should be 1 element.")
+	}
+	getBob, err := GetUser("bob", "fubar")
+	if err != nil {
+		t.Error(err)
 		return
 	}
-	userlib.DebugMsg("\n")
+	bobBytes, _ := json.Marshal(bob)
+	getBobBytes, _ := json.Marshal(getBob)
+	if !reflect.DeepEqual(bobBytes, getBobBytes) {
+		t.Error("")
+		return
+	}
 
-	bad, _ := userlib.DatastoreGet(u2.UUID)
-	userlib.DatastoreSet(u.UUID, bad)
+	// Corrupted datastore test.
+	userlib.DatastoreClear()
+	userlib.KeystoreClear()
+	datastore = userlib.DatastoreGetMap()
+	keystore = userlib.KeystoreGetMap()
+	_, _ = datastore, keystore
 
-	ug, err := GetUser("alice", "fubar")
+	_, err = InitUser("bob", "fubar")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	_, err = InitUser("alice", "fubar")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	var keys []userlib.UUID
+	var vals [][]byte
+	for k, v := range datastore {
+		keys = append(keys, k)
+		vals = append(vals, v)
+	}
+	userlib.DatastoreSet(keys[0], vals[1])
+	for i := 1; i < len(keys); i++ {
+		userlib.DatastoreSet(keys[i], vals[0])
+	}
+	_, err = GetUser("alice", "fubar")
 	if err == nil {
 		t.Error("Datastore was corrupted for alice but still got user.")
 		return
-	} else if len(datastore) == 0 {
-		t.Error("Datastore is empty when there should be 1 element.")
+	}
+	_, err = GetUser("bob", "fubar")
+	if err == nil {
+		t.Error("Datastore was corrupted for alice but still got user.")
 		return
 	}
 
-	ug, err = GetUser("bob", "fubar")
-	if err != nil {
-		t.Error(err)
-		return
-	} else if len(datastore) == 0 {
-		t.Error("Datastore is empty when there should be 1 element.")
-		return
-	}
-
-	// Make sure the Init struct equal the fetch struct for the same user
-	uBytes, _ := json.Marshal(u2)
-	ugBytes, _ := json.Marshal(ug)
-	for i := range uBytes {
-		if uBytes[i] != ugBytes[i] {
-			t.Error("Saved and fetched user doesn't match")
-			return
-		}
-	}
+	// TODO: more tests to check that stuff is actually encrypted.
 }
 
 func TestStorage(t *testing.T) {
-	// MAKE SURE TO CLEAR STORES FOR EACH TEST
+	userlib.SetDebugStatus(false)
+
+	// Basic functionality test with edge cases.
 	userlib.DatastoreClear()
 	userlib.KeystoreClear()
-	userlib.SetDebugStatus(false)
 	datastore := userlib.DatastoreGetMap()
-	_ = datastore
+	keystore := userlib.KeystoreGetMap()
+	_, _ = datastore, keystore
 
 	fileNames := []string{"f1", "f2", "f3", "f4", "f5"}
 	userNames := []string{"u1", "u2", "u3", "u4", "u5"}
-
-	// Test saving and loading files with edge case block sizes
-	// Also implicitly checks loading and saving multiple files & users without reset.
-	for i, offset := range []int{-4, -1, 0, 1, 5} {
+	for i, offset := range []int{-4, -1, 0, 1, 8} {
 		user, err := InitUser(userNames[i], "fubar")
 		if err != nil {
 			t.Error(err)
 			return
 		}
-
 		file := userlib.RandomBytes(userlib.AESBlockSize*7 - offset)
-
 		user.StoreFile(fileNames[i], file)
-
 		// Get user to check for userdata update.
 		user, err = GetUser(userNames[i], "fubar")
-
 		loadedFile, err2 := user.LoadFile(fileNames[i])
 		if err2 != nil {
 			t.Error("Failed to upload and download", err2)
@@ -169,6 +119,8 @@ func TestStorage(t *testing.T) {
 			return
 		}
 	}
+
+	// TODO: More tests to check for the corruption case.
 }
 
 func TestShare(t *testing.T) {
@@ -213,4 +165,60 @@ func TestShare(t *testing.T) {
 		return
 	}
 
+}
+
+/**
+Private tests that only work for our implementation.
+*/
+
+// It tests the symmetric encryption function that handles padding
+// and implements a parallelized decryption
+func TestSymEncDec(t *testing.T) {
+	userlib.DebugPrint = false
+	for _, i := range []int{-4, -1, 0, 1, 5} {
+		userlib.DebugMsg("i = %d", i)
+		IV := userlib.RandomBytes(userlib.AESBlockSize)
+		key := userlib.RandomBytes(userlib.AESBlockSize)
+		msg := userlib.RandomBytes(userlib.AESBlockSize*10 + i)
+		userlib.DebugMsg("IV: %x", IV)
+		userlib.DebugMsg("Msg: %x", msg)
+
+		enc_list_ptr, _ := SymmetricEnc(&key, &IV, &msg)
+		userlib.DebugMsg("Enc List: %x", *enc_list_ptr)
+
+		dec_list, _ := SymmetricDec(&key, enc_list_ptr)
+		userlib.DebugMsg("Dec List: %x", *dec_list)
+
+		for i := range *dec_list {
+			if (*dec_list)[i] != msg[i] {
+				t.Error("Encrypted msg doesnt match decrypted msg")
+			}
+		}
+
+		userlib.DebugMsg("\n")
+	}
+}
+
+// It tests the Wrap for things being stored on the Datastore.
+func TestWrapper(t *testing.T) {
+	userlib.DebugPrint = false
+	IV := userlib.RandomBytes(userlib.AESBlockSize)
+	key := userlib.RandomBytes(userlib.AESBlockSize)
+	msg := userlib.RandomBytes(userlib.AESBlockSize * 10000000)
+	enc_list_ptr, _ := SymmetricEnc(&key, &IV, &msg)
+	wrap_ptr, err := Wrapper(&key, enc_list_ptr)
+	if err != nil {
+		userlib.DebugMsg("%v", err)
+		t.Error("Failed to Wrapper")
+	}
+	//wrap_ptr.Cyphers[1][0] = wrap_ptr.Cyphers[1][8] // Uncomment to for a fail check.
+	//wrap_ptr.Hmac[0] = wrap_ptr.Hmac[8] // Uncomment to for a fail check.
+	unwrap_enc_list_ptr, err := Unwrapper(&key, wrap_ptr)
+	if err != nil {
+		userlib.DebugMsg("%v", err)
+		t.Error("Failed to Unwrapper")
+		return
+	}
+	userlib.DebugMsg("Enc List: %x", *enc_list_ptr)
+	userlib.DebugMsg("Unwrapped Enc List: %x", *unwrap_enc_list_ptr)
 }
