@@ -656,6 +656,7 @@ type sharingRecord struct {
 func (userdata *User) ShareFile(filename string, recipient string) (magic_string string, err error) {
 	DocUuid := userdata.FileUUIDs[filename]
 	fileKey := userdata.FileKeys[DocUuid]
+	_ = fileKey
 	//recipientPubKey, ok := userlib.KeystoreGet(recipient)
 	// TODO: Change UUID scheme such that it can be derived from just the username
 	return
