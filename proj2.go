@@ -581,9 +581,11 @@ type sharingRecord struct {
 // recipient can access the sharing record, and only the recipient
 // should be able to know the sender.
 
-func (userdata *User) ShareFile(filename string, recipient string) (
-	magic_string string, err error) {
-
+func (userdata *User) ShareFile(filename string, recipient string) (magic_string string, err error) {
+	DocUuid := userdata.FileUUIDs[filename]
+	fileKey := userdata.FileKeys[DocUuid]
+	//recipientPubKey, ok := userlib.KeystoreGet(recipient)
+	// TODO: Change UUID scheme such that it can be derived from just the username
 	return
 }
 
