@@ -8,7 +8,41 @@ import (
 	"github.com/google/uuid"
 	"github.com/ryanleh/cs161-p2/userlib"
 	_ "strconv"
+	_ "strings"
 )
+
+/**
+Struct Defs:
+*/
+
+// The structure definition for a user record
+type User struct {
+	Username      string
+	UPH           []byte
+	UUID          uuid.UUID
+	symEncKey     []byte
+	hmacKey       []byte
+	PrivateDecKey userlib.PKEDecKey
+	PrivateSigKey userlib.DSSignKey
+	FilesOwned    map[uuid.UUID]bool
+	FileUUIDs     map[string]uuid.UUID
+	FileKeys      map[uuid.UUID][]byte
+}
+
+// The structure definition for storing things on the Datastore.
+type Wrap struct {
+	Cyphers [][]byte
+	Hmac    []byte
+}
+
+// The structure definition for a file's metadata
+type FileMetadata struct {
+	CypherUUIDs []uuid.UUID
+}
+
+/**
+Helper Functions:
+*/
 
 // Simple helper function to convert byte slices to UUIDs
 func bytesToUUID(data []byte) (ret uuid.UUID) {
@@ -33,11 +67,12 @@ func GenRandUUID() (UUID uuid.UUID) {
 This function symmetrically encrypts a byte slice and handles the necessary padding.
 
 It takes:
-	- A decryption/encryption key byte slice.
-	- A IV byte slice. (size has to be equal to userlib.AESBlockSize)
-	- A byte slice to be encrypted.
+	- A pointer to a decryption/encryption key byte slice.
+	- A pointer to a IV byte slice. (size has to be equal to userlib.AESBlockSize)
+	- A pointer to a byte slice to be encrypted.
 It returns:
-	- A slice of byte slice cypher texts s.t. the first element is the IV byte slice.
+	- A pointer to a slice of byte slice cypher texts s.t. the first
+      element is the IV byte slice.
 	- A nil error if successful.
 */
 func SymmetricEnc(key *[]byte, iv *[]byte, data *[]byte) (cyphers *[][]byte, err error) {
@@ -65,10 +100,10 @@ func SymmetricEnc(key *[]byte, iv *[]byte, data *[]byte) (cyphers *[][]byte, err
 This function symmetrically decrypts slice of byte slice cypher texts and removes the padding.
 
 It takes:
-	- A decryption/encryption key byte slice.
-	- A slice of byte slice cypher texts s.t. the first element is the IV byte slice.
+	- A pointer to a decryption/encryption key byte slice.
+	- A pointer to a slice of byte slice cypher texts s.t. the first element is the IV byte slice.
 It returns:
-	- A byte slice of the unencrypted data
+	- A pointer to a byte slice of the unencrypted data
 	- A nil error if successful.
 */
 func SymmetricDec(key *[]byte, cyphers *[][]byte) (data *[]byte, err error) {
@@ -91,21 +126,16 @@ func SymmetricDec(key *[]byte, cyphers *[][]byte) (data *[]byte, err error) {
 	return
 }
 
-// The structure definition for storing things on the Datastore.
-type Wrap struct {
-	Cyphers [][]byte
-	Hmac    []byte
-}
-
 /**
 This is the main Wrap function that is used to ensure integrity of a slice of
 cypher text (C0 .. Cn) when it is stored on the Datastore.
 
 It takes:
-	- A HMAC key byte slice.
-	- A slice of byte slice cypher texts s.t. the first element is the IV byte slice.
+	- A pointer HMAC key byte slice.
+	- A pointer to a slice of byte slice cypher texts s.t. the first
+      element is the IV byte slice.
 It returns:
-	- A 'Wrap' struct following the format described in the design doc.
+	- A pointer to a Wrap struct following the format described in the design doc.
 	- A nil error if successful.
 */
 func Wrapper(key *[]byte, cyphers *[][]byte) (wrap *Wrap, err error) {
@@ -124,10 +154,11 @@ This is the main unwrapping function to read encrypted cypher text from the Data
 and check for integrity.
 
 It takes:
-	- A HMAC key byte slice.
-	- A 'Wrap' struct following the format described in the design doc.
+	- A pointer to a HMAC key byte slice.
+	- A pointer to a Wrap struct following the format described in the design doc.
 It returns:
-	- A slice of byte slice cypher texts s.t. the first element is the IV byte slice.
+	- A pointer to a slice of byte slice cypher texts s.t. the first
+      element is the IV byte slice.
 	- A nil error if successful.
 */
 func Unwrapper(key *[]byte, wrap *Wrap) (cyphers *[][]byte, err error) {
@@ -145,35 +176,21 @@ func Unwrapper(key *[]byte, wrap *Wrap) (cyphers *[][]byte, err error) {
 	return
 }
 
-// The structure definition for a user record
-type User struct {
-	Username      string
-	UPH           []byte
-	UUID          uuid.UUID
-	symEncKey     []byte
-	hmacKey       []byte
-	PrivateDecKey userlib.PKEDecKey
-	PrivateSigKey userlib.DSSignKey
-	FilesOwned    map[uuid.UUID]bool
-	FileUUIDs     map[string]uuid.UUID
-	FileKeys      map[uuid.UUID][]byte
-}
-
 /**
 This is a helper function for the Init and Get user functions.
 It derives the keys, hashes and UUID for a user given their username and password
 and saves it to the userdata User struct.
 
 It takes:
-	- Username String.
-	- Password String.
-    - Pointer to the userdata User struct.
+	- A pointer to username String.
+	- A pointer to password String.
+    - A pointer to the userdata User struct.
 It returns:
 	- A nil error if successful.
 */
-func DeriveAndSaveUserAttributes(username string, password string, userdata *User) (err error) {
-	bUsername := []byte(username)
-	bPassword := []byte(password)
+func DeriveAndSaveUserAttributes(username *string, password *string, userdata *User) (err error) {
+	bUsername := []byte(*username)
+	bPassword := []byte(*password)
 	strongBytesPw := userlib.Argon2Key(bPassword, bUsername, uint32(userlib.AESKeySize))
 
 	userdata.UPH, err = userlib.HMACEval(strongBytesPw, bUsername) // User Password Hash
@@ -193,43 +210,45 @@ func DeriveAndSaveUserAttributes(username string, password string, userdata *Use
 }
 
 /**
-This is a helper function to save a User struct to the Datastore.
+This is a helper function to get, validate and unencrypt a file's metadata
 
 It takes:
-	- Pointer to the User struct to be saved (contains all the info needed).
+	- A pointer to a file's metadata UUID
+	- A pointer to a file's hmac key
+	- A pointer to a file's encryption key
 It returns:
-	- A nil error if successful.
+	- A pointer to the file's metadata struct
+	- A nil error if successful
 */
-func SaveUser(userdata *User) (err error) {
-	byteUserdata, err := json.Marshal(userdata)
-	if err != nil || len(byteUserdata) <= 2 {
-		err = errors.New("userdata marshal failed")
+func GetMetadata(fileUUID *uuid.UUID, fileHmacKey *[]byte, fileEncKey *[]byte) (metadata *FileMetadata, err error) {
+	var metadataWrap Wrap
+	wrappedMetadataBytes, ok := userlib.DatastoreGet(*fileUUID)
+	if !ok {
+		err = errors.New("file's metadata not found on Datastore")
 		return
 	}
-	IV := userlib.RandomBytes(userlib.AESBlockSize)
-	encCyphersPtr, err := SymmetricEnc(&userdata.symEncKey, &IV, &byteUserdata)
+	err = json.Unmarshal(wrappedMetadataBytes, &metadataWrap)
 	if err != nil {
 		return
 	}
-	wrappedCyphersPtr, err := Wrapper(&userdata.hmacKey, encCyphersPtr)
+	metadataCypherBytesPtr, err := Unwrapper(fileHmacKey, &metadataWrap)
 	if err != nil {
 		return
 	}
-	wrappedUserdataBytes, err := json.Marshal(*wrappedCyphersPtr)
-	if err != nil || len(wrappedUserdataBytes) <= 2 {
-		err = errors.New("wrapped userdata marshal failed")
+	metadataBytesPtr, err := SymmetricDec(fileEncKey, metadataCypherBytesPtr)
+	if err != nil {
 		return
 	}
-	userlib.DatastoreSet(userdata.UUID, wrappedUserdataBytes)
-
-	// Debugging stuff
-	userlib.DebugMsg("UUID: %v", userdata.UUID)
-	userlib.DebugMsg("UPH: %x", userdata.UPH)
-	userlib.DebugMsg("symEncKey: %x", userdata.symEncKey)
-	userlib.DebugMsg("hmacKey: %x", userdata.hmacKey)
-	userlib.DebugMsg("wrapperHmac: %x", wrappedCyphersPtr.Hmac)
+	err = json.Unmarshal(*metadataBytesPtr, &metadata)
+	if err != nil {
+		return
+	}
 	return
 }
+
+/**
+User Init and Get:
+*/
 
 /**
 This is the main function that creates a new user and saves them to the Datastore.
@@ -246,7 +265,7 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	var userdata User
 	userdataptr = &userdata
 
-	err = DeriveAndSaveUserAttributes(username, password, &userdata)
+	err = DeriveAndSaveUserAttributes(&username, &password, &userdata)
 	if err != nil {
 		return
 	}
@@ -277,7 +296,7 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	userdata.PrivateDecKey = PKdec
 	userdata.PrivateSigKey = DSsig
 
-	err = SaveUser(&userdata)
+	err = userdata.SaveUser()
 	return
 }
 
@@ -298,7 +317,7 @@ It returns:
 func GetUser(username string, password string) (userdataptr *User, err error) {
 	var userdata User
 
-	err = DeriveAndSaveUserAttributes(username, password, &userdata)
+	err = DeriveAndSaveUserAttributes(&username, &password, &userdata)
 	if err != nil {
 		return
 	}
@@ -329,20 +348,44 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 		return
 	}
 
-	// Debugging stuff
-	userlib.DebugMsg("loaded UUID: %v", userdata.UUID)
-	userlib.DebugMsg("loaded UPH: %x", userdata.UPH)
-	userlib.DebugMsg("symEncKey: %x", userdata.symEncKey)
-	userlib.DebugMsg("hmacKey: %x", userdata.hmacKey)
-	userlib.DebugMsg("wrapperHmac: %x", wrap.Hmac)
-
 	userdataptr = &userdata
 	return
 }
 
-// The structure definition for a file's metadata
-type FileMetadata struct {
-	CypherUUIDs []uuid.UUID
+/**
+User Methods:
+*/
+
+/**
+This is a helper method to save a User struct to the Datastore.
+
+It takes:
+	- A  pointer to the User struct to be saved (contains all the info needed).
+It returns:
+	- A nil error if successful.
+*/
+func (userdata *User) SaveUser() (err error) {
+	byteUserdata, err := json.Marshal(userdata)
+	if err != nil || len(byteUserdata) <= 2 {
+		err = errors.New("userdata marshal failed")
+		return
+	}
+	IV := userlib.RandomBytes(userlib.AESBlockSize)
+	encCyphersPtr, err := SymmetricEnc(&userdata.symEncKey, &IV, &byteUserdata)
+	if err != nil {
+		return
+	}
+	wrappedCyphersPtr, err := Wrapper(&userdata.hmacKey, encCyphersPtr)
+	if err != nil {
+		return
+	}
+	wrappedUserdataBytes, err := json.Marshal(*wrappedCyphersPtr)
+	if err != nil || len(wrappedUserdataBytes) <= 2 {
+		err = errors.New("wrapped userdata marshal failed")
+		return
+	}
+	userlib.DatastoreSet(userdata.UUID, wrappedUserdataBytes)
+	return
 }
 
 /**
@@ -421,7 +464,7 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 	userdata.FileUUIDs[filename] = fileUUID
 	userdata.FileKeys[fileUUID] = fileEncKey
 
-	err = SaveUser(userdata)
+	err = userdata.SaveUser()
 	if err != nil {
 		panic(err)
 	}
@@ -467,8 +510,7 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 	// Setup & derive file attributes
 	fileUUID, ok := userdata.FileUUIDs[filename]
 	if !ok {
-		err = errors.New("file not found")
-		return
+		return // Do NOT raise an error if the file is not found.
 	}
 	fileUUIDBytes, err := fileUUID.MarshalBinary()
 	if err != nil {
@@ -484,19 +526,19 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 	if err != nil {
 		return
 	}
+	fileHmacKey = fileHmacKey[:userlib.AESKeySize]
 
-	// Fetch and unencrypt file's metadata
-	wrappedMetadataBytes, ok := userlib.DatastoreGet(fileUUID)
-	if !ok {
-		err = errors.New("file's metadata not found on Datastore")
+	metadataPtr, err := GetMetadata(&fileUUID, &fileHmacKey, &fileEncKey)
+	if err != nil {
 		return
 	}
-
 	//TODO: finish this up...
-	_, _ = fileHmacKey, wrappedMetadataBytes
+	_, _ = fileHmacKey, metadataPtr
 
 	return
 }
+
+// TODO: Move things around to have logic flow.
 
 // You may want to define what you actually want to pass as a
 // sharingRecord to serialized/deserialize in the data store.

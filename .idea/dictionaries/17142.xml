@@ -7,8 +7,10 @@
       <w>parallelized</w>
       <w>struct</w>
       <w>unencrypt</w>
+      <w>unencryptes</w>
       <w>unwrapper</w>
       <w>userdata</w>
+      <w>userdataptr</w>
     </words>
   </dictionary>
 </component>

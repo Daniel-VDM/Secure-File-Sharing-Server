@@ -136,7 +136,7 @@ func TestStorage(t *testing.T) {
 	// MAKE SURE TO CLEAR STORES FOR EACH TEST
 	userlib.DatastoreClear()
 	userlib.KeystoreClear()
-	userlib.SetDebugStatus(false)
+	userlib.SetDebugStatus(true)
 	datastore := userlib.DatastoreGetMap()
 	_ = datastore
 
@@ -147,7 +147,7 @@ func TestStorage(t *testing.T) {
 	}
 	t.Log("Loaded user", u)
 
-	v := []byte("This is a test")
+	v := []byte("This is a test") // TODO: test large files...
 	u.StoreFile("file1", v)
 
 	// Get user to check for userdata update.
