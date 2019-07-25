@@ -220,7 +220,7 @@ It returns:
 	- A pointer to the file's metadata struct
 	- A nil error if successful
 */
-func GetMetadata(fileUUID *uuid.UUID, fileHmacKey *[]byte, fileEncKey *[]byte) (metadata *FileMetadata, err error) {
+func GetFileMetadata(fileUUID *uuid.UUID, fileHmacKey *[]byte, fileEncKey *[]byte) (metadata *FileMetadata, err error) {
 	var metadataWrap Wrap
 	wrappedMetadataBytes, ok := userlib.DatastoreGet(*fileUUID)
 	if !ok {
@@ -471,31 +471,6 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 }
 
 /**
-This method deletes the underlying file known as filename to the user.
-Only the file owner can delete the file.
-Note that it deletes ALL related files on the Datastore.
-
-TODO: Implement this function. It is needed for a file revoke.
-
-It takes:
-	- A filename string = the name of the file to be deleted
-It returns:
-	- A nil error if successful.
-*/
-func (userdata *User) DeleteFile(filename string) (err error) {
-	return
-}
-
-// This adds on to an existing file.
-//
-// Append should be efficient, you shouldn't rewrite or reencrypt the
-// existing file, but only whatever additional information and
-// metadata you need.
-func (userdata *User) AppendFile(filename string, data []byte) (err error) {
-	return
-}
-
-/**
 This method loads a file in the datastore and does not reveal the filename to the Datastore.
 It will error if the file doesn't exist or if the file is corrupted in ANY WAY.
 Note that only a user (i.e: a User struct) can call this method.
@@ -528,13 +503,39 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 	}
 	fileHmacKey = fileHmacKey[:userlib.AESKeySize]
 
-	metadataPtr, err := GetMetadata(&fileUUID, &fileHmacKey, &fileEncKey)
+	metadataPtr, err := GetFileMetadata(&fileUUID, &fileHmacKey, &fileEncKey)
 	if err != nil {
 		return
 	}
 	//TODO: finish this up...
+
 	_, _ = fileHmacKey, metadataPtr
 
+	return
+}
+
+/**
+This method deletes the underlying file known as filename to the user.
+Only the file owner can delete the file.
+Note that it deletes ALL related files on the Datastore.
+
+TODO: Implement this function. It is needed for a file revoke.
+
+It takes:
+	- A filename string = the name of the file to be deleted
+It returns:
+	- A nil error if successful.
+*/
+func (userdata *User) DeleteFile(filename string) (err error) {
+	return
+}
+
+// This adds on to an existing file.
+//
+// Append should be efficient, you shouldn't rewrite or reencrypt the
+// existing file, but only whatever additional information and
+// metadata you need.
+func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 	return
 }
 
