@@ -115,6 +115,7 @@ func SymmetricDec(key *[]byte, cyphers *[][]byte) (data *[]byte, err error) {
 	decSlice := userlib.SymDec(*key, cypher)
 
 	var padStart uint
+
 	for padStart = uint(len(decSlice) - 1); padStart >= 0; padStart-- {
 		if decSlice[padStart] == 1 {
 			break
@@ -503,14 +504,37 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 	}
 	fileHmacKey = fileHmacKey[:userlib.AESKeySize]
 
+	// Fetch, verify and unencrypt file's data
 	metadataPtr, err := GetFileMetadata(&fileUUID, &fileHmacKey, &fileEncKey)
 	if err != nil {
 		return
 	}
-	//TODO: finish this up...
+	var encCyphers [][]byte
+	for i, CypherUUID := range metadataPtr.CypherUUIDs {
+		var wrappedCyphers Wrap
+		wrappedCypherBytes, ok := userlib.DatastoreGet(CypherUUID)
+		if !ok {
+			err = errors.New("file is missing a cypher (probably corrupted)")
+			return
+		}
+		err = json.Unmarshal(wrappedCypherBytes, &wrappedCyphers)
+		if err != nil {
+			return
+		}
+		cypherPairPtr, er := Unwrapper(&fileHmacKey, &wrappedCyphers)
+		if er != nil {
+			err = er // Won't compile if this like everything else.
+			return
+		}
+		if i == 0 {
+			encCyphers = *cypherPairPtr
+		} else {
+			encCyphers = append(encCyphers, (*cypherPairPtr)[1])
+		}
+	}
+	dataPtr, err := SymmetricDec(&fileEncKey, &encCyphers)
 
-	_, _ = fileHmacKey, metadataPtr
-
+	data = *dataPtr
 	return
 }
 

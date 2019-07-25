@@ -136,30 +136,38 @@ func TestStorage(t *testing.T) {
 	// MAKE SURE TO CLEAR STORES FOR EACH TEST
 	userlib.DatastoreClear()
 	userlib.KeystoreClear()
-	userlib.SetDebugStatus(true)
+	userlib.SetDebugStatus(false)
 	datastore := userlib.DatastoreGetMap()
 	_ = datastore
 
-	u, err := InitUser("alice", "fubar")
-	if err != nil {
-		t.Error(err)
-		return
-	}
-	t.Log("Loaded user", u)
+	fileNames := []string{"f1", "f2", "f3", "f4", "f5"}
+	userNames := []string{"u1", "u2", "u3", "u4", "u5"}
 
-	v := []byte("This is a test") // TODO: test large files...
-	u.StoreFile("file1", v)
+	// Test saving and loading files with edge case block sizes
+	// Also implicitly checks loading and saving multiple files & users without reset.
+	for i, offset := range []int{-4, -1, 0, 1, 5} {
+		user, err := InitUser(userNames[i], "fubar")
+		if err != nil {
+			t.Error(err)
+			return
+		}
 
-	// Get user to check for userdata update.
-	u, err = GetUser("alice", "fubar")
-	v2, err2 := u.LoadFile("file1")
-	if err2 != nil {
-		t.Error("Failed to upload and download", err2)
-		return
-	}
-	if !reflect.DeepEqual(v, v2) {
-		t.Error("Downloaded file is not the same", v, v2)
-		return
+		file := userlib.RandomBytes(userlib.AESBlockSize*7 - offset)
+
+		user.StoreFile(fileNames[i], file)
+
+		// Get user to check for userdata update.
+		user, err = GetUser(userNames[i], "fubar")
+
+		loadedFile, err2 := user.LoadFile(fileNames[i])
+		if err2 != nil {
+			t.Error("Failed to upload and download", err2)
+			return
+		}
+		if !reflect.DeepEqual(file, loadedFile) {
+			t.Error("Downloaded file is not the same", file, loadedFile)
+			return
+		}
 	}
 }
 
