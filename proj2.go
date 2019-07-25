@@ -393,8 +393,8 @@ func (userdata *User) SaveUser() (err error) {
 This method stores a file in the datastore and does not reveal the filename to the Datastore.
 Note that only a user (i.e: a User struct) can call this method.
 
-Note that storing a file under a name that already exists for THIS user is undefined behavior.
-But this implementation attempts to remove the UNDERLYING file.
+Note that storing a file under a name that already exists for this user is undefined behavior.
+But this implementation attempts to remove the underlying file.
 
 It takes:
 	- A filename string = the name of the file for THIS particular user.
@@ -414,7 +414,7 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 	}
 	fileHmacKey = fileHmacKey[:userlib.AESKeySize]
 
-	// Attempt to delete the filename's underlying file if it is present.
+	// Attempt to delete the filename's underlying file if it is present. (Might have to remove this)
 	_, ok := userdata.FileUUIDs[filename]
 	if ok {
 		_ = userdata.DeleteFile(filename) // It's ok if it fails.
@@ -464,6 +464,7 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 	// Adding file's UUID and key to userdata
 	userdata.FileUUIDs[filename] = fileUUID
 	userdata.FileKeys[fileUUID] = fileEncKey
+	userdata.FilesOwned[fileUUID] = true
 
 	err = userdata.SaveUser()
 	if err != nil {
@@ -554,12 +555,48 @@ func (userdata *User) DeleteFile(filename string) (err error) {
 	return
 }
 
-// This adds on to an existing file.
-//
-// Append should be efficient, you shouldn't rewrite or reencrypt the
-// existing file, but only whatever additional information and
-// metadata you need.
+/**
+This method efficiently appends data to the underlying file known as filename the user.
+Note that this is very similar to the load file method by design.
+Note that this raises an error if the filename is not found.
+
+It takes:
+	- A filename string = the name of the file for THIS particular user.
+	- A data byte slice to be appended.
+It returns:
+	- A nil error if successful.
+*/
 func (userdata *User) AppendFile(filename string, data []byte) (err error) {
+	// Setup & derive file attributes
+	fileUUID, ok := userdata.FileUUIDs[filename]
+	if !ok {
+		err = errors.New("file not found for the append")
+		return
+	}
+	fileUUIDBytes, err := fileUUID.MarshalBinary()
+	if err != nil {
+		err = errors.New("file UUID binary marshal failed")
+		return
+	}
+	fileEncKey, ok := userdata.FileKeys[fileUUID]
+	if !ok {
+		err = errors.New("file key not found")
+		return
+	}
+	fileHmacKey, err := userlib.HMACEval(fileEncKey, fileUUIDBytes)
+	if err != nil {
+		return
+	}
+	fileHmacKey = fileHmacKey[:userlib.AESKeySize]
+
+	// Fetch, verify and unencrypt file's data
+	metadataPtr, err := GetFileMetadata(&fileUUID, &fileHmacKey, &fileEncKey)
+	if err != nil {
+		return
+	}
+	_ = metadataPtr
+
+	// TODO: finish this up.
 	return
 }
 
