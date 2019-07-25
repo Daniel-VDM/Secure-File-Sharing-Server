@@ -45,7 +45,7 @@ func TestInitAndGet(t *testing.T) {
 	bobBytes, _ := json.Marshal(bob)
 	getBobBytes, _ := json.Marshal(getBob)
 	if !reflect.DeepEqual(bobBytes, getBobBytes) {
-		t.Error("")
+		t.Error("Init and Get userdata are not the same.")
 		return
 	}
 
