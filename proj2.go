@@ -555,11 +555,16 @@ func (userdata *User) DeleteFile(filename string) (err error) {
 	return
 }
 
-// This adds on to an existing file.
-//
-// Append should be efficient, you shouldn't rewrite or reencrypt the
-// existing file, but only whatever additional information and
-// metadata you need.
+/**
+This method efficiently appends data to the underlying file known as filename the user.
+Note that this is very similar to the load file method by design.
+
+It takes:
+	- A filename string = the name of the file for THIS particular user.
+	- A data byte slice to be appended.
+It returns:
+	- A nil error if successful.
+*/
 func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 	// Setup & derive file attributes
 	fileUUID, ok := userdata.FileUUIDs[filename]
