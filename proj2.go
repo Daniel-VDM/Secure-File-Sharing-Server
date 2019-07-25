@@ -393,8 +393,8 @@ func (userdata *User) SaveUser() (err error) {
 This method stores a file in the datastore and does not reveal the filename to the Datastore.
 Note that only a user (i.e: a User struct) can call this method.
 
-Note that storing a file under a name that already exists for THIS user is undefined behavior.
-But this implementation attempts to remove the UNDERLYING file.
+Note that storing a file under a name that already exists for this user is undefined behavior.
+But this implementation attempts to remove the underlying file.
 
 It takes:
 	- A filename string = the name of the file for THIS particular user.
@@ -414,7 +414,7 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 	}
 	fileHmacKey = fileHmacKey[:userlib.AESKeySize]
 
-	// Attempt to delete the filename's underlying file if it is present.
+	// Attempt to delete the filename's underlying file if it is present. (Might have to remove this)
 	_, ok := userdata.FileUUIDs[filename]
 	if ok {
 		_ = userdata.DeleteFile(filename) // It's ok if it fails.
@@ -558,6 +558,7 @@ func (userdata *User) DeleteFile(filename string) (err error) {
 /**
 This method efficiently appends data to the underlying file known as filename the user.
 Note that this is very similar to the load file method by design.
+Note that this raises an error if the filename is not found.
 
 It takes:
 	- A filename string = the name of the file for THIS particular user.
@@ -569,7 +570,8 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 	// Setup & derive file attributes
 	fileUUID, ok := userdata.FileUUIDs[filename]
 	if !ok {
-		return // Do NOT raise an error if the file is not found.
+		err = errors.New("file not found for the append")
+		return
 	}
 	fileUUIDBytes, err := fileUUID.MarshalBinary()
 	if err != nil {
