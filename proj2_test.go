@@ -114,7 +114,7 @@ func TestStorage(t *testing.T) {
 			t.Error(err)
 			return
 		}
-		file := userlib.RandomBytes(userlib.AESBlockSize*1 - offset)
+		file := userlib.RandomBytes(userlib.AESBlockSize*13 - offset)
 		user.StoreFile(fileNames[i], file)
 		// Get user to check for userdata update.
 		user, err = GetUser(userNames[i], "fubar")

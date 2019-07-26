@@ -18,6 +18,7 @@ Struct Defs:
 // The structure definition for a user record
 type User struct {
 	Username      string
+	UUID          uuid.UUID
 	UPH           []byte
 	symEncKey     []byte
 	hmacKey       []byte
@@ -39,8 +40,8 @@ type FileMetadata struct {
 	CypherUUIDs []uuid.UUID
 }
 
-// TODO wrapper save method & get FUNCTION    (Have save method  & function only take UUIDs)
-// TODO FileMetadata save method   (Have save method UUIDs and 2 Keys) - Needs to be encrypted btw
+// TODO secureDatastoreSet & secureDatastoreGet (takes UUID, 2 keys, and byte SLICE).
+// TODO use above with save user, store, load and append file
 
 /**
 Helper Functions:
@@ -196,6 +197,14 @@ func DeriveAndSaveUserAttributes(username *string, password *string, userdata *U
 	bPassword := []byte(*password)
 
 	userdata.UPH = userlib.Argon2Key(bPassword, bUsername, 32) // User Password Hash
+	rehashedUPH, err := userlib.HMACEval(userdata.UPH, bUsername)
+	if err != nil {
+		return
+	}
+	userdata.UUID, err = uuid.FromBytes(rehashedUPH[:16])
+	if err != nil {
+		return
+	}
 	userdata.symEncKey = userlib.Argon2Key(append([]byte("enc_"), userdata.UPH...),
 		bPassword, uint32(userlib.AESKeySize))
 	userdata.hmacKey = userlib.Argon2Key(append([]byte("mac_"), userdata.UPH...),
@@ -241,8 +250,6 @@ func GetFileMetadata(fileUUID *uuid.UUID, fileHmacKey *[]byte, fileEncKey *[]byt
 	return
 }
 
-// TODO Metadata methods here...
-
 /**
 User Init and Get:
 */
@@ -263,14 +270,6 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	userdataptr = &userdata
 
 	err = DeriveAndSaveUserAttributes(&username, &password, &userdata)
-	if err != nil {
-		return
-	}
-	rehashedUPH, err := userlib.HMACEval(userdata.UPH, []byte(username))
-	if err != nil {
-		return
-	}
-	UUID, err := uuid.FromBytes(rehashedUPH[:16])
 	if err != nil {
 		return
 	}
@@ -301,7 +300,7 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	userdata.PrivateDecKey = PKdec
 	userdata.PrivateSigKey = DSsig
 
-	err = userdata.SaveUser(UUID)
+	err = userdata.SaveUser()
 	return
 }
 
@@ -326,17 +325,9 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 	if err != nil {
 		return
 	}
-	rehashedUPH, err := userlib.HMACEval(userdata.UPH, []byte(username))
-	if err != nil {
-		return
-	}
-	UUID, err := uuid.FromBytes(rehashedUPH[:16])
-	if err != nil {
-		return
-	}
 
 	// Fetch encrypted data from Datastore
-	wrappedUserdataBytes, ok := userlib.DatastoreGet(UUID)
+	wrappedUserdataBytes, ok := userlib.DatastoreGet(userdata.UUID)
 	if !ok {
 		err = errors.New("username not found or password is not correct")
 		return
@@ -377,7 +368,7 @@ It takes:
 It returns:
 	- A nil error if successful.
 */
-func (userdata *User) SaveUser(UUID uuid.UUID) (err error) {
+func (userdata *User) SaveUser() (err error) {
 	byteUserdata, err := json.Marshal(userdata)
 	if err != nil || len(byteUserdata) <= 2 {
 		err = errors.New("userdata marshal failed")
@@ -397,7 +388,7 @@ func (userdata *User) SaveUser(UUID uuid.UUID) (err error) {
 		err = errors.New("wrapped userdata marshal failed")
 		return
 	}
-	userlib.DatastoreSet(UUID, wrappedUserdataBytes)
+	userlib.DatastoreSet(userdata.UUID, wrappedUserdataBytes)
 	return
 }
 
@@ -478,16 +469,7 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 	userdata.FileKeys[fileUUID] = fileEncKey
 	userdata.FilesOwned[fileUUID] = true
 
-	// Save the userdata to the Datastore
-	rehashedUPH, err := userlib.HMACEval(userdata.UPH, []byte(userdata.Username))
-	if err != nil {
-		return
-	}
-	userUUID, err := uuid.FromBytes(rehashedUPH[:16])
-	if err != nil {
-		return
-	}
-	err = userdata.SaveUser(userUUID)
+	err = userdata.SaveUser()
 	if err != nil {
 		panic(err)
 	}
@@ -536,16 +518,7 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 
 	// TODO: finish this up.
 
-	// Save the userdata to the Datastore
-	rehashedUPH, err := userlib.HMACEval(userdata.UPH, []byte(userdata.Username))
-	if err != nil {
-		return
-	}
-	userUUID, err := uuid.FromBytes(rehashedUPH[:16])
-	if err != nil {
-		return
-	}
-	err = userdata.SaveUser(userUUID)
+	err = userdata.SaveUser()
 	if err != nil {
 		panic(err)
 	}
