@@ -91,7 +91,7 @@ func TestInitAndGet(t *testing.T) {
 		return
 	}
 
-	// TODO: more tests to check that stuff is actually encrypted.
+	// TODO: more tests to check that stuff is actually encrypted and check PW diffs.
 }
 
 func TestStorage(t *testing.T) {
@@ -114,7 +114,7 @@ func TestStorage(t *testing.T) {
 			t.Error(err)
 			return
 		}
-		file := userlib.RandomBytes(userlib.AESBlockSize*7 - offset)
+		file := userlib.RandomBytes(userlib.AESBlockSize*13 - offset)
 		user.StoreFile(fileNames[i], file)
 		// Get user to check for userdata update.
 		user, err = GetUser(userNames[i], "fubar")
@@ -130,6 +130,7 @@ func TestStorage(t *testing.T) {
 	}
 
 	// TODO: More tests to check for the corruption case.
+	// TODO: More tests to check the append function (and respective corruption).
 }
 
 func TestShare(t *testing.T) {
