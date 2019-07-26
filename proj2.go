@@ -65,6 +65,7 @@ func GenRandUUID() (UUID uuid.UUID) {
 
 /**
 This function symmetrically encrypts a byte slice and handles the necessary padding.
+Note that userlib's symmetric encryption / decryption uses AES-CBC mode.
 
 It takes:
 	- A pointer to a decryption/encryption key byte slice.
@@ -104,6 +105,7 @@ func SymmetricEnc(key *[]byte, iv *[]byte, data *[]byte) (cyphers *[][]byte, err
 
 /**
 This function symmetrically decrypts slice of byte slice cypher texts and removes the padding.
+Note that userlib's symmetric encryption / decryption uses AES-CBC mode.
 
 It takes:
 	- A pointer to a decryption/encryption key byte slice.
@@ -283,6 +285,7 @@ User Init and Get:
 /**
 This is the main function that creates a new user and saves them to the Datastore.
 This function assumes that it will be called only once per unique username.
+Note that symmetric encryption / decryption uses AES-CBC mode.
 
 It takes:
 	- Username String.
@@ -332,6 +335,8 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 
 /**
 This is the main function to fetch a user from the Datastore.
+Note that symmetric encryption / decryption uses AES-CBC mode.
+
 It returns a non nil error when:
 	* user/password is invalid.
 	* user data was corrupted.
@@ -391,6 +396,7 @@ func (userdata *User) Save() (err error) {
 
 /**
 This method stores a file in the datastore and does not reveal the filename to the Datastore.
+Note that symmetric encryption / decryption uses AES-CBC mode.
 
 Note that storing a file under a name that already exists for this user is undefined behavior.
 But this implementation attempts to remove the underlying file.
@@ -462,6 +468,7 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 This method efficiently appends data to the underlying file known as filename the user.
 Note that this is very similar to the load file method by design.
 Note that this raises an error if the filename is not found.
+Note that symmetric encryption / decryption uses AES-CBC mode.
 
 It takes:
 	- A filename string = the name of the file for THIS particular user.
@@ -472,7 +479,7 @@ It returns:
 func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 	// Setup & derive file attributes
 	fileUUID, ok := userdata.FileUUIDs[filename]
-	if !ok {
+	if !ok { // This is possibly undefined behavior in the spec.
 		err = errors.New("file not found for the append")
 		return
 	}
@@ -492,7 +499,7 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 	}
 	fileHmacKey = fileHmacKey[:userlib.AESKeySize]
 
-	// Fetch, verify and unencrypt file's data
+	// Fetch, verify and unencrypt file's metadata
 	var metadata FileMetadata
 	metadataBytesPtr, err := secureDatastoreGet(&fileUUID, &fileHmacKey, &fileEncKey)
 	if err != nil {
@@ -503,12 +510,50 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 		return
 	}
 
-	// TODO: finish this up.
-
-	err = userdata.Save()
+	// Fetch, verify and unencrypt last 2 cyphers of file's data
+	last2CypherUUIDs := metadata.CypherUUIDs[len(metadata.CypherUUIDs)-2:]
+	cypher0BytesPtr, err := secureDatastoreGet(&last2CypherUUIDs[0], &fileHmacKey, &fileEncKey)
 	if err != nil {
-		panic(err)
+		return
 	}
+	cypher1BytesPtr, err := secureDatastoreGet(&last2CypherUUIDs[1], &fileHmacKey, &fileEncKey)
+	if err != nil {
+		return
+	}
+
+	// Append to the end of our file and encrypt it
+	cyphers := [][]byte{*cypher0BytesPtr, *cypher1BytesPtr}
+	oldEndDataPtr, err := SymmetricDec(&fileEncKey, &cyphers)
+	if err != nil {
+		return
+	}
+	endData := append(*oldEndDataPtr, data...)
+	cyphersPtr, err := SymmetricEnc(&fileEncKey, cypher0BytesPtr, &endData)
+	if err != nil {
+		return
+	}
+
+	// Store the new cyphers in the Datastore and update metadata
+	metadata.CypherUUIDs = metadata.CypherUUIDs[:len(metadata.CypherUUIDs)-1]
+	for i := 1; i < len(*cyphersPtr); i++ {
+		cypherUUID := GenRandUUID()
+		metadata.CypherUUIDs = append(metadata.CypherUUIDs, cypherUUID)
+		err = secureDatastoreSet(&cypherUUID, &fileHmacKey, &fileEncKey, &(*cyphersPtr)[i])
+		if err != nil {
+			return
+		}
+	}
+
+	// Encrypt, wrap and store the file's metadata on the Datastore
+	metadataBytes, err := json.Marshal(metadata)
+	if err != nil || len(metadataBytes) <= 2 {
+		err = errors.New("file metadata marshal failed")
+	}
+	err = secureDatastoreSet(&fileUUID, &fileHmacKey, &fileEncKey, &metadataBytes)
+	if err != nil {
+		return
+	}
+
 	return
 }
 

@@ -11,6 +11,7 @@
       <w>unwrapper</w>
       <w>userdata</w>
       <w>userdataptr</w>
+      <w>userlib</w>
     </words>
   </dictionary>
 </component>

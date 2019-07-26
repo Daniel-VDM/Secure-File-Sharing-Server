@@ -96,9 +96,11 @@ func TestInitAndGet(t *testing.T) {
 
 func TestStorage(t *testing.T) {
 	userlib.SetDebugStatus(true)
+	fileNames := []string{"f1", "f2", "f3", "f4", "f5"}
+	userNames := []string{"u1", "u2", "u3", "u4", "u5"}
 
 	/**
-	Basic functionality test with edge cases.
+	Basic functionality test with basic edge cases.
 	*/
 	userlib.DatastoreClear()
 	userlib.KeystoreClear()
@@ -106,31 +108,129 @@ func TestStorage(t *testing.T) {
 	keystore := userlib.KeystoreGetMap()
 	_, _ = datastore, keystore
 
-	fileNames := []string{"f1", "f2", "f3", "f4", "f5"}
-	userNames := []string{"u1", "u2", "u3", "u4", "u5"}
-	for i, offset := range []int{-4, -1, 0, 1, 8} {
-		user, err := InitUser(userNames[i], "fubar")
-		if err != nil {
-			t.Error(err)
+	for i, offset := range []int{-4, -1, 0, 1, 7} {
+		user, err1 := InitUser(userNames[i], "fubar")
+		if err1 != nil {
+			t.Error(err1)
 			return
 		}
-		file := userlib.RandomBytes(userlib.AESBlockSize*13 - offset)
+
+		file := userlib.RandomBytes(userlib.AESBlockSize - offset)
 		user.StoreFile(fileNames[i], file)
+
 		// Get user to check for userdata update.
-		user, err = GetUser(userNames[i], "fubar")
-		loadedFile, err2 := user.LoadFile(fileNames[i])
+		user, err2 := GetUser(userNames[i], "fubar")
 		if err2 != nil {
-			t.Error("Failed to upload and download", err2)
+			t.Error(err2)
+			return
+		}
+
+		loadedFile, err3 := user.LoadFile(fileNames[i])
+		if err3 != nil {
+			t.Error("Failed to upload and download", err3)
 			return
 		}
 		if !reflect.DeepEqual(file, loadedFile) {
-			t.Error("Downloaded file is not the same", file, loadedFile)
+			t.Error("Loaded file is not the same original\n",
+				file, loadedFile)
 			return
 		}
 	}
 
+	/**
+	Basic append test with basic edge cases.
+	*/
+	for i, offset1 := range []int{-4, -1, 0, 1, 7} {
+		for _, offset2 := range []int{-4, -1, 0, 1, 7} {
+			userlib.DatastoreClear()
+			userlib.KeystoreClear()
+
+			user, err0 := InitUser(userNames[i], "fubar")
+			if err0 != nil {
+				t.Error(err0)
+				return
+			}
+
+			file := userlib.RandomBytes(userlib.AESBlockSize - offset1)
+			toAppend := userlib.RandomBytes(userlib.AESBlockSize - offset2)
+
+			user.StoreFile(fileNames[i], file)
+			err1 := user.AppendFile(fileNames[i], toAppend)
+			if err1 != nil {
+				t.Error(err1)
+				return
+			}
+
+			// Get user to check for userdata update.
+			user, err2 := GetUser(userNames[i], "fubar")
+			if err2 != nil {
+				t.Error(err2)
+				return
+			}
+
+			loadedFile, err3 := user.LoadFile(fileNames[i])
+			if err3 != nil {
+				t.Error(err3)
+				return
+			}
+			refAppend := append(file, toAppend...)
+			if !reflect.DeepEqual(refAppend, loadedFile) {
+				t.Error("Loaded (appended) file is not the same as reference\n",
+					refAppend, "\n", loadedFile)
+				return
+			}
+		}
+	}
+
+	/**
+	Basic append test with multiple files.
+	*/
+	userlib.DatastoreClear()
+	userlib.KeystoreClear()
+	datastore = userlib.DatastoreGetMap()
+	keystore = userlib.KeystoreGetMap()
+	_, _ = datastore, keystore
+
+	for i, offset1 := range []int{-4, -1, 0, 1, 7} {
+		user, err0 := InitUser(userNames[i], "fubar")
+		if err0 != nil {
+			t.Error(err0)
+			return
+		}
+
+		file := userlib.RandomBytes(userlib.AESBlockSize - offset1)
+		toAppend := userlib.RandomBytes(userlib.AESBlockSize)
+
+		user.StoreFile(fileNames[i], file)
+		err1 := user.AppendFile(fileNames[i], toAppend)
+		if err1 != nil {
+			t.Error(err1)
+			return
+		}
+
+		// Get user to check for userdata update.
+		user, err2 := GetUser(userNames[i], "fubar")
+		if err2 != nil {
+			t.Error(err2)
+			return
+		}
+
+		loadedFile, err3 := user.LoadFile(fileNames[i])
+		if err3 != nil {
+			t.Error(err3)
+			return
+		}
+		refAppend := append(file, toAppend...)
+		if !reflect.DeepEqual(refAppend, loadedFile) {
+			t.Error("Loaded (appended) file is not the same as reference\n",
+				refAppend, "\n", loadedFile)
+			return
+		}
+	}
+
+	// TODO: Stress test to check for the 'efficient' part.
 	// TODO: More tests to check for the corruption case.
-	// TODO: More tests to check the append function (and respective corruption).
+
 }
 
 func TestShare(t *testing.T) {
