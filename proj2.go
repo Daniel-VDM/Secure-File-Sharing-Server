@@ -629,11 +629,27 @@ type sharingRecord struct {
 func (userdata *User) ShareFile(filename string, recipient string) (magic_string string, err error) {
 	DocUuid := userdata.FileUUIDs[filename]
 	fileKey := userdata.FileKeys[DocUuid]
-	recPK, ok := userlib.KeystoreGet("enc_" + recipient)
+	recPKE, ok := userlib.KeystoreGet("enc_" + recipient)
 	if !ok {
+		err = errors.New("invalid recipient - missing public encryption key")
 		return
 	}
-	//key := recPK.PubKey
+	bDocUuid, err := json.Marshal(DocUuid)
+	if err != nil {
+		return
+	}
+	message := append(bDocUuid, fileKey...)
+	ciphertext, err := userlib.PKEEnc(recPKE, message)
+	if err != nil {
+		return
+	}
+
+	sig, err := userlib.DSSign(userdata.PrivateSigKey, ciphertext)
+	if err != nil {
+		return
+	}
+
+	magic_string = string(append(sig, ciphertext...))
 	return
 }
 
