@@ -391,7 +391,6 @@ func (userdata *User) Save() (err error) {
 
 /**
 This method stores a file in the datastore and does not reveal the filename to the Datastore.
-Note that only a user (i.e: a User struct) can call this method.
 
 Note that storing a file under a name that already exists for this user is undefined behavior.
 But this implementation attempts to remove the underlying file.
@@ -406,7 +405,7 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 		panic("attempted so store a file that already exists.")
 	}
 
-	// Generate file keys and UUIDs
+	// Generate file keys and file UUID
 	fileUUID := GenRandUUID()
 	fileUUIDBytes, err := fileUUID.MarshalBinary()
 	if err != nil {
@@ -419,20 +418,20 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 	}
 	fileHmacKey = fileHmacKey[:userlib.AESKeySize]
 
-	// Encrypting file data and get cyphers slice
+	// Encrypt file data and get cyphers
 	var metadata FileMetadata
 	IV := userlib.RandomBytes(userlib.AESBlockSize)
-	encCyphersPtr, err := SymmetricEnc(&fileEncKey, &IV, &data)
+	cyphersPtr, err := SymmetricEnc(&fileEncKey, &IV, &data)
 	if err != nil {
 		panic("file store encryption failed.")
 	}
 
 	// Store each cypher on the Datastore
-	metadata.CypherUUIDs = make([]uuid.UUID, len(*encCyphersPtr))
+	metadata.CypherUUIDs = make([]uuid.UUID, len(*cyphersPtr))
 	for i := range metadata.CypherUUIDs {
 		metadata.CypherUUIDs[i] = GenRandUUID()
 		err = secureDatastoreSet(&metadata.CypherUUIDs[i], &fileHmacKey,
-			&fileEncKey, &(*encCyphersPtr)[i])
+			&fileEncKey, &(*cyphersPtr)[i])
 		if err != nil {
 			panic(err)
 		}
@@ -516,7 +515,6 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 /**
 This method loads a file in the datastore and does not reveal the filename to the Datastore.
 It will error if the file doesn't exist or if the file is corrupted in any way.
-Note that only a user (i.e: a User struct) can call this method.
 
 It takes:
 	- A filename string = the name of the file for THIS particular user.
@@ -558,16 +556,16 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 	}
 
 	// Fetch, verify, combine cyphers, and unencrypt file's data
-	var encCyphers [][]byte
+	var cyphers [][]byte
 	for _, CypherUUID := range metadata.CypherUUIDs {
 		cypherPtr, er := secureDatastoreGet(&CypherUUID, &fileHmacKey, &fileEncKey)
 		if er != nil {
 			err = er
 			return
 		}
-		encCyphers = append(encCyphers, *cypherPtr)
+		cyphers = append(cyphers, *cypherPtr)
 	}
-	dataPtr, err := SymmetricDec(&fileEncKey, &encCyphers)
+	dataPtr, err := SymmetricDec(&fileEncKey, &cyphers)
 
 	data = *dataPtr
 	return
