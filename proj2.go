@@ -26,7 +26,8 @@ type User struct {
 	PrivateSigKey userlib.DSSignKey
 	FilesOwned    map[uuid.UUID]bool
 	FileUUIDs     map[string]uuid.UUID
-	FileKeys      map[uuid.UUID][]byte
+	FileEncKeys   map[uuid.UUID][]byte
+	FileHmacKeys  map[uuid.UUID][]byte
 }
 
 // The structure definition for storing things on the Datastore.
@@ -195,7 +196,7 @@ This takes:
 It returns:
 	- A nil error if successful.
 */
-func secureDatastoreSet(UUID *uuid.UUID, hmacKey *[]byte, symEncKey *[]byte, data *[]byte) (err error) {
+func SecureDatastoreSet(UUID *uuid.UUID, hmacKey *[]byte, symEncKey *[]byte, data *[]byte) (err error) {
 	IV := userlib.RandomBytes(userlib.AESBlockSize)
 	encCyphersPtr, err := SymmetricEnc(symEncKey, &IV, data)
 	if err != nil {
@@ -222,10 +223,10 @@ This takes:
 	- A pointer to a HMAC key byte slice.
 	- A pointer to a decryption/encryption key byte slice.
 It returns:
-	- A pointer to the byte slice given when secureDatastoreSet was called.
+	- A pointer to the byte slice given when SecureDatastoreSet was called.
 	- A nil error if successful.
 */
-func secureDatastoreGet(UUID *uuid.UUID, hmacKey *[]byte, symEncKey *[]byte) (data *[]byte, err error) {
+func SecureDatastoreGet(UUID *uuid.UUID, hmacKey *[]byte, symEncKey *[]byte) (data *[]byte, err error) {
 	wrappedCyphersBytes, ok := userlib.DatastoreGet(*UUID)
 	if !ok {
 		err = errors.New("UUID not found in keystore")
@@ -307,7 +308,8 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	userdata.Username = username
 	userdata.FilesOwned = make(map[uuid.UUID]bool)
 	userdata.FileUUIDs = make(map[string]uuid.UUID)
-	userdata.FileKeys = make(map[uuid.UUID][]byte)
+	userdata.FileEncKeys = make(map[uuid.UUID][]byte)
+	userdata.FileHmacKeys = make(map[uuid.UUID][]byte)
 
 	// Set-up and save the asymmetric keys
 	PKenc, PKdec, err := userlib.PKEKeyGen()
@@ -329,7 +331,7 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	userdata.PrivateDecKey = PKdec
 	userdata.PrivateSigKey = DSsig
 
-	err = userdata.Save()
+	err = userdata.Store()
 	return
 }
 
@@ -358,7 +360,7 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 		return
 	}
 
-	userdataBytesPtr, err := secureDatastoreGet(&userdataptr.UUID,
+	userdataBytesPtr, err := SecureDatastoreGet(&userdataptr.UUID,
 		&userdataptr.hmacKey, &userdataptr.symEncKey)
 	if err != nil {
 		if err.Error() == "UUID not found in keystore" {
@@ -383,13 +385,13 @@ It takes:
 It returns:
 	- A nil error if successful.
 */
-func (userdata *User) Save() (err error) {
+func (userdata *User) Store() (err error) {
 	byteUserdata, err := json.Marshal(userdata)
 	if err != nil || len(byteUserdata) <= 2 {
 		err = errors.New("userdata marshal failed")
 		return
 	}
-	err = secureDatastoreSet(&userdata.UUID, &userdata.hmacKey,
+	err = SecureDatastoreSet(&userdata.UUID, &userdata.hmacKey,
 		&userdata.symEncKey, &byteUserdata)
 	return
 }
@@ -398,69 +400,110 @@ func (userdata *User) Save() (err error) {
 This method stores a file in the datastore and does not reveal the filename to the Datastore.
 Note that symmetric encryption / decryption uses AES-CBC mode.
 
-Note that storing a file under a name that already exists for this user is undefined behavior.
-But this implementation attempts to remove the underlying file.
+This implementation overrides the existing underlying file but keeps the SAME metadata
+file (and encryption keys) for file sharing.
 
 It takes:
 	- A filename string = the name of the file for THIS particular user.
 	- The byte slice of the file.
 */
 func (userdata *User) StoreFile(filename string, data []byte) {
-	_, ok := userdata.FileUUIDs[filename]
-	if ok {
-		panic("attempted so store a file that already exists.")
-	}
+	var (
+		fileUUID    uuid.UUID
+		fileEncKey  []byte
+		fileHmacKey []byte
+		ok          bool
+	)
 
-	// Generate file keys and file UUID
-	fileUUID := GenRandUUID()
-	fileUUIDBytes, err := fileUUID.MarshalBinary()
-	if err != nil {
-		panic("file UUID binary marshal failed.")
+	fileUUID, overwrite := userdata.FileUUIDs[filename]
+	if overwrite {
+		// Fetch file keys and file UUID
+		fileEncKey, ok = userdata.FileEncKeys[fileUUID]
+		if !ok {
+			userlib.DebugMsg("file key not found")
+			return
+		}
+		fileHmacKey, ok = userdata.FileHmacKeys[fileUUID]
+		if !ok {
+			userlib.DebugMsg("file Hamc key not found")
+			return
+		}
+
+		// Delete underlying file but keep metadata
+		var metadata FileMetadata
+		metadataBytesPtr, err := SecureDatastoreGet(&fileUUID, &fileHmacKey, &fileEncKey)
+		if err != nil {
+			userlib.DebugMsg("", err)
+			return
+		}
+		err = json.Unmarshal(*metadataBytesPtr, &metadata)
+		if err != nil {
+			userlib.DebugMsg("", err)
+			return
+		}
+		for _, cypherUUID := range metadata.CypherUUIDs {
+			userlib.DatastoreDelete(cypherUUID)
+		}
+	} else {
+		// Generate file keys and file UUID
+		fileUUID = GenRandUUID()
+		fileUUIDBytes, err := fileUUID.MarshalBinary()
+		if err != nil {
+			userlib.DebugMsg("file UUID binary marshal failed.")
+			return
+		}
+		fileEncKey = userlib.RandomBytes(userlib.AESKeySize)
+		fileHmacKey, err = userlib.HMACEval(fileEncKey, fileUUIDBytes)
+		if err != nil {
+			userlib.DebugMsg("file hmac failed.")
+			return
+		}
+		fileHmacKey = fileHmacKey[:userlib.AESKeySize]
 	}
-	fileEncKey := userlib.RandomBytes(userlib.AESKeySize)
-	fileHmacKey, err := userlib.HMACEval(fileEncKey, fileUUIDBytes)
-	if err != nil {
-		panic("file hmac failed.")
-	}
-	fileHmacKey = fileHmacKey[:userlib.AESKeySize]
 
 	// Encrypt file data and get cyphers
-	var metadata FileMetadata
 	IV := userlib.RandomBytes(userlib.AESBlockSize)
 	cyphersPtr, err := SymmetricEnc(&fileEncKey, &IV, &data)
 	if err != nil {
-		panic("file store encryption failed.")
+		userlib.DebugMsg("file data encryption failed.")
+		return
 	}
 
 	// Store each cypher on the Datastore
+	var metadata FileMetadata
 	metadata.CypherUUIDs = make([]uuid.UUID, len(*cyphersPtr))
 	for i := range metadata.CypherUUIDs {
 		metadata.CypherUUIDs[i] = GenRandUUID()
-		err = secureDatastoreSet(&metadata.CypherUUIDs[i], &fileHmacKey,
+		err = SecureDatastoreSet(&metadata.CypherUUIDs[i], &fileHmacKey,
 			&fileEncKey, &(*cyphersPtr)[i])
 		if err != nil {
-			panic(err)
+			userlib.DebugMsg("", err)
+			return
 		}
 	}
 
 	// Encrypt, wrap and store the file's metadata on the Datastore
 	metadataBytes, err := json.Marshal(metadata)
 	if err != nil || len(metadataBytes) <= 2 {
-		panic("file metadata marshal failed.")
+		userlib.DebugMsg("file metadata marshal failed.")
+		return
 	}
-	err = secureDatastoreSet(&fileUUID, &fileHmacKey, &fileEncKey, &metadataBytes)
+	err = SecureDatastoreSet(&fileUUID, &fileHmacKey, &fileEncKey, &metadataBytes)
 	if err != nil {
-		panic(err)
+		userlib.DebugMsg("", err)
+		return
 	}
 
 	// Adding file's UUID and key to userdata
 	userdata.FileUUIDs[filename] = fileUUID
-	userdata.FileKeys[fileUUID] = fileEncKey
 	userdata.FilesOwned[fileUUID] = true
+	userdata.FileEncKeys[fileUUID] = fileEncKey
+	userdata.FileHmacKeys[fileUUID] = fileHmacKey
 
-	err = userdata.Save()
+	err = userdata.Store()
 	if err != nil {
-		panic(err)
+		userlib.DebugMsg("", err)
+		return
 	}
 }
 
@@ -483,25 +526,20 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 		err = errors.New("file not found for the append")
 		return
 	}
-	fileUUIDBytes, err := fileUUID.MarshalBinary()
-	if err != nil {
-		err = errors.New("file UUID binary marshal failed")
-		return
-	}
-	fileEncKey, ok := userdata.FileKeys[fileUUID]
+	fileEncKey, ok := userdata.FileEncKeys[fileUUID]
 	if !ok {
 		err = errors.New("file key not found")
 		return
 	}
-	fileHmacKey, err := userlib.HMACEval(fileEncKey, fileUUIDBytes)
-	if err != nil {
+	fileHmacKey, ok := userdata.FileHmacKeys[fileUUID]
+	if !ok {
+		err = errors.New("file Hmac key not found")
 		return
 	}
-	fileHmacKey = fileHmacKey[:userlib.AESKeySize]
 
 	// Fetch, verify and unencrypt file's metadata
 	var metadata FileMetadata
-	metadataBytesPtr, err := secureDatastoreGet(&fileUUID, &fileHmacKey, &fileEncKey)
+	metadataBytesPtr, err := SecureDatastoreGet(&fileUUID, &fileHmacKey, &fileEncKey)
 	if err != nil {
 		return
 	}
@@ -512,11 +550,11 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 
 	// Fetch, verify and unencrypt last 2 cyphers of file's data
 	last2CypherUUIDs := metadata.CypherUUIDs[len(metadata.CypherUUIDs)-2:]
-	cypher0BytesPtr, err := secureDatastoreGet(&last2CypherUUIDs[0], &fileHmacKey, &fileEncKey)
+	cypher0BytesPtr, err := SecureDatastoreGet(&last2CypherUUIDs[0], &fileHmacKey, &fileEncKey)
 	if err != nil {
 		return
 	}
-	cypher1BytesPtr, err := secureDatastoreGet(&last2CypherUUIDs[1], &fileHmacKey, &fileEncKey)
+	cypher1BytesPtr, err := SecureDatastoreGet(&last2CypherUUIDs[1], &fileHmacKey, &fileEncKey)
 	if err != nil {
 		return
 	}
@@ -538,7 +576,7 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 	for i := 1; i < len(*cyphersPtr); i++ {
 		cypherUUID := GenRandUUID()
 		metadata.CypherUUIDs = append(metadata.CypherUUIDs, cypherUUID)
-		err = secureDatastoreSet(&cypherUUID, &fileHmacKey, &fileEncKey, &(*cyphersPtr)[i])
+		err = SecureDatastoreSet(&cypherUUID, &fileHmacKey, &fileEncKey, &(*cyphersPtr)[i])
 		if err != nil {
 			return
 		}
@@ -549,7 +587,7 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 	if err != nil || len(metadataBytes) <= 2 {
 		err = errors.New("file metadata marshal failed")
 	}
-	err = secureDatastoreSet(&fileUUID, &fileHmacKey, &fileEncKey, &metadataBytes)
+	err = SecureDatastoreSet(&fileUUID, &fileHmacKey, &fileEncKey, &metadataBytes)
 	if err != nil {
 		return
 	}
@@ -565,7 +603,7 @@ It takes:
 	- A filename string = the name of the file for THIS particular user.
 It returns:
 	- The file's byte slice.
-	- A nil error if successful.
+	- A nil error if successful or if the file is not found.
 */
 func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 	// Setup & derive file attributes
@@ -573,25 +611,20 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 	if !ok {
 		return // Do NOT raise an error if the file is not found.
 	}
-	fileUUIDBytes, err := fileUUID.MarshalBinary()
-	if err != nil {
-		err = errors.New("file UUID binary marshal failed")
-		return
-	}
-	fileEncKey, ok := userdata.FileKeys[fileUUID]
+	fileEncKey, ok := userdata.FileEncKeys[fileUUID]
 	if !ok {
 		err = errors.New("file key not found")
 		return
 	}
-	fileHmacKey, err := userlib.HMACEval(fileEncKey, fileUUIDBytes)
-	if err != nil {
+	fileHmacKey, ok := userdata.FileHmacKeys[fileUUID]
+	if !ok {
+		err = errors.New("file Hmac key not found")
 		return
 	}
-	fileHmacKey = fileHmacKey[:userlib.AESKeySize]
 
 	// Fetch, verify and unencrypt file's metadata
 	var metadata FileMetadata
-	metadataBytesPtr, err := secureDatastoreGet(&fileUUID, &fileHmacKey, &fileEncKey)
+	metadataBytesPtr, err := SecureDatastoreGet(&fileUUID, &fileHmacKey, &fileEncKey)
 	if err != nil {
 		return
 	}
@@ -603,7 +636,7 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 	// Fetch, verify, combine cyphers, and unencrypt file's data
 	var cyphers [][]byte
 	for _, CypherUUID := range metadata.CypherUUIDs {
-		cypherPtr, er := secureDatastoreGet(&CypherUUID, &fileHmacKey, &fileEncKey)
+		cypherPtr, er := SecureDatastoreGet(&CypherUUID, &fileHmacKey, &fileEncKey)
 		if er != nil {
 			err = er
 			return
@@ -618,10 +651,11 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 
 /**
 This method deletes the underlying file known as filename to the user.
-Only the file owner can delete the file.
 Note that it deletes ALL related files on the Datastore.
 
-TODO: Implement this function. It is needed for a file revoke.
+This implementation does NOT check if the user was the original creator
+of the underlying file since it is undefined behavior for a non-owner
+to delete the file.
 
 It takes:
 	- A filename string = the name of the file to be deleted
@@ -629,6 +663,45 @@ It returns:
 	- A nil error if successful.
 */
 func (userdata *User) DeleteFile(filename string) (err error) {
+	// Setup & derive file attributes
+	fileUUID, ok := userdata.FileUUIDs[filename]
+	if !ok {
+		// Nothing to delete
+		return
+	}
+	fileEncKey, ok := userdata.FileEncKeys[fileUUID]
+	if !ok {
+		err = errors.New("file key not found")
+		return
+	}
+	fileHmacKey, ok := userdata.FileHmacKeys[fileUUID]
+	if !ok {
+		err = errors.New("file Hmac key not found")
+		return
+	}
+
+	// Fetch, verify and unencrypt file's metadata
+	var metadata FileMetadata
+	metadataBytesPtr, err := SecureDatastoreGet(&fileUUID, &fileHmacKey, &fileEncKey)
+	if err != nil {
+		return
+	}
+	err = json.Unmarshal(*metadataBytesPtr, &metadata)
+	if err != nil {
+		return
+	}
+
+	// Remove each cypher entry and the metadata entry
+	for _, cypherUUID := range metadata.CypherUUIDs {
+		userlib.DatastoreDelete(cypherUUID)
+	}
+	userlib.DatastoreDelete(fileUUID)
+
+	// Update and save user.
+	delete(userdata.FilesOwned, fileUUID)
+	delete(userdata.FileEncKeys, fileUUID)
+	delete(userdata.FileUUIDs, filename)
+	err = userdata.Store()
 	return
 }
 
@@ -652,7 +725,7 @@ type sharingRecord struct {
 
 func (userdata *User) ShareFile(filename string, recipient string) (magic_string string, err error) {
 	DocUuid := userdata.FileUUIDs[filename]
-	fileKey := userdata.FileKeys[DocUuid]
+	fileKey := userdata.FileEncKeys[DocUuid]
 	recPKE, ok := userlib.KeystoreGet("enc_" + recipient)
 	if !ok {
 		err = errors.New("invalid recipient - missing public encryption key")

@@ -137,6 +137,26 @@ func TestStorage(t *testing.T) {
 		}
 	}
 
+	// Test the file overwrite case in our implementation.
+	file := userlib.RandomBytes(userlib.AESBlockSize - 7)
+	user, err2 := GetUser(userNames[4], "fubar")
+	user.StoreFile(fileNames[4], file)
+	if err2 != nil {
+		t.Error(err2)
+		return
+	}
+
+	loadedFile, err3 := user.LoadFile(fileNames[4])
+	if err3 != nil {
+		t.Error("Failed to upload and download", err3)
+		return
+	}
+	if !reflect.DeepEqual(file, loadedFile) {
+		t.Error("Loaded file is not the same original\n",
+			file, loadedFile)
+		return
+	}
+
 	/**
 	Basic append test with basic edge cases.
 	*/
@@ -230,6 +250,7 @@ func TestStorage(t *testing.T) {
 
 	// TODO: Stress test to check for the 'efficient' part.
 	// TODO: More tests to check for the corruption case.
+	// TODO: Write SHARING TESTS that tests for file overwrite AND file appends.
 
 }
 
