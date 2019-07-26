@@ -95,7 +95,7 @@ func TestInitAndGet(t *testing.T) {
 }
 
 func TestStorage(t *testing.T) {
-	userlib.SetDebugStatus(false)
+	userlib.SetDebugStatus(true)
 
 	/**
 	Basic functionality test with edge cases.
