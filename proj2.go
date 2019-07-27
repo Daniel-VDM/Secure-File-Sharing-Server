@@ -644,18 +644,32 @@ type sharingRecord struct {
 // should be able to know the sender.
 
 func (userdata *User) ShareFile(filename string, recipient string) (magic_string string, err error) {
-	DocUuid := userdata.FileUUIDs[filename]
-	fileKey := userdata.FileEncKeys[DocUuid]
+	DocUuid, ok := userdata.FileUUIDs[filename]
+	if !ok {
+		err = errors.New("user does not have access to this file - missing docUUID")
+		return
+	}
+	fileEncKey, ok := userdata.FileEncKeys[DocUuid]
+	if !ok {
+		err = errors.New("missing file encryption key")
+		return
+	}
+	fileHmacKey, ok := userdata.FileHmacKeys[DocUuid]
+	if !ok {
+		err = errors.New("missing MAC key")
+		return
+	}
 	recPKE, ok := userlib.KeystoreGet("enc_" + recipient)
 	if !ok {
 		err = errors.New("invalid recipient - missing public encryption key")
 		return
 	}
-	bDocUuid, err := json.Marshal(DocUuid)
+	bDocUuid, err := DocUuid.MarshalBinary()
 	if err != nil {
 		return
 	}
-	message := append(bDocUuid, fileKey...)
+	message := append(bDocUuid, fileEncKey...)
+	message = append(message, fileHmacKey...)
 	ciphertext, err := userlib.PKEEnc(recPKE, message)
 	if err != nil {
 		return
@@ -674,8 +688,35 @@ func (userdata *User) ShareFile(filename string, recipient string) (magic_string
 // The recipient should not be able to discover the sender's view on
 // what the filename even is!  However, the recipient must ensure that
 // it is authentically from the sender.
-func (userdata *User) ReceiveFile(filename string, sender string,
-	magic_string string) error {
+func (userdata *User) ReceiveFile(filename string, sender string, magic_string string) error {
+	bMagicString := []byte(magic_string)
+	sig := bMagicString[:userlib.HashSize]
+	msg := bMagicString[userlib.HashSize:]
+	senderPubSigKey, ok := userlib.KeystoreGet("vfy_" + sender)
+	if !ok {
+		return errors.New("invalid sender")
+	}
+	err := userlib.DSVerify(senderPubSigKey, msg, sig)
+	if err != nil {
+		return err
+	}
+
+	msg, err = userlib.PKEDec(userdata.PrivateDecKey, msg)
+	if err != nil || len(msg) != 16 + userlib.RSAKeySize * 2 {
+		return err
+	}
+	bDocUuid := msg[:16]
+	fileEncKey := msg[16:16+userlib.RSAKeySize]
+	fileHmacKey := msg[16+userlib.RSAKeySize:]
+
+	DocUuid, err := uuid.FromBytes(bDocUuid)
+	if err != nil {
+		return err
+	}
+
+	userdata.FileUUIDs[filename] = DocUuid
+	userdata.FileEncKeys[DocUuid] = fileEncKey
+	userdata.FileHmacKeys[DocUuid] = fileHmacKey
 	return nil
 }
 
