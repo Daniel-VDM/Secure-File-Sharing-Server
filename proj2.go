@@ -770,5 +770,5 @@ func (userdata *User) RevokeFile(filename string) (err error) {
 		return err
 	}
 	userdata.StoreFile(filename, file)
-	return nil
+	return
 }
