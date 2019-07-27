@@ -735,7 +735,10 @@ func (userdata *User) RevokeFile(filename string) (err error) {
 	if err != nil {
 		return err
 	}
-	// TODO: Remove relevent entries in datastore
+	err = userdata.DeleteFile(filename)
+	if err != nil {
+		return err
+	}
 	userdata.StoreFile(filename, file)
 	return nil
 }
