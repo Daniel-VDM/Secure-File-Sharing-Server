@@ -382,7 +382,7 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 
 	fileUUID, overwrite := userdata.FileUUIDs[filename]
 	if overwrite {
-		// Fetch file keys for overwrite
+		// Save file keys for sharing and delete underlying file
 		fileEncKey, ok = userdata.FileEncKeys[fileUUID]
 		if !ok {
 			userlib.DebugMsg("file key not found")
@@ -393,18 +393,7 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 			userlib.DebugMsg("file Hamc key not found")
 			return
 		}
-
-		// Delete underlying file but keep metadata
-		var metadata FileMetadata
-		metadataBytesPtr, err := SecureDatastoreGet(&fileUUID, &fileHmacKey, &fileEncKey)
-		if err != nil {
-			userlib.DebugMsg("", err)
-			return
-		}
-		_ = json.Unmarshal(*metadataBytesPtr, &metadata)
-		for _, cypherUUID := range metadata.CypherUUIDs {
-			userlib.DatastoreDelete(cypherUUID)
-		}
+		_ = userdata.DeleteFile(filename) // It is okay to error here
 	} else {
 		// Generate file keys and file UUID
 		fileUUID = GenRandUUID()
@@ -466,7 +455,7 @@ It returns:
 	- A nil error if successful.
 */
 func (userdata *User) AppendFile(filename string, data []byte) (err error) {
-	// Setup & derive file attributes
+	// Get file UUID and keys.
 	fileUUID, ok := userdata.FileUUIDs[filename]
 	if !ok { // This is possibly undefined behavior in the spec.
 		err = errors.New("file not found for the append")
@@ -543,7 +532,7 @@ It returns:
 	- A nil error if successful.
 */
 func (userdata *User) LoadFile(filename string) (data []byte, err error) {
-	// Setup & derive file attributes
+	// Get file UUID and keys.
 	fileUUID, ok := userdata.FileUUIDs[filename]
 	if !ok {
 		err = errors.New("filename not found for user")
@@ -579,7 +568,6 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 		cyphers = append(cyphers, *cypherPtr)
 	}
 	dataPtr, err := SymmetricDec(&fileEncKey, &cyphers)
-
 	data = *dataPtr
 	return
 }
@@ -598,7 +586,7 @@ It returns:
 	- A nil error if successful.
 */
 func (userdata *User) DeleteFile(filename string) (err error) {
-	// Setup & derive file attributes
+	// Get file UUID and keys.
 	fileUUID, ok := userdata.FileUUIDs[filename]
 	if !ok {
 		// Nothing to delete
