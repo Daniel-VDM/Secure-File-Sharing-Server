@@ -447,18 +447,8 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 	} else {
 		// Generate file keys and file UUID
 		fileUUID = GenRandUUID()
-		fileUUIDBytes, err := fileUUID.MarshalBinary()
-		if err != nil {
-			userlib.DebugMsg("file UUID binary marshal failed.")
-			return
-		}
 		fileEncKey = userlib.RandomBytes(userlib.AESKeySize)
-		fileHmacKey, err = userlib.HMACEval(fileEncKey, fileUUIDBytes)
-		if err != nil {
-			userlib.DebugMsg("file hmac failed.")
-			return
-		}
-		fileHmacKey = fileHmacKey[:userlib.AESKeySize]
+		fileHmacKey = userlib.RandomBytes(userlib.AESKeySize)
 	}
 
 	// Encrypt file data and get cyphers
@@ -603,13 +593,14 @@ It takes:
 	- A filename string = the name of the file for THIS particular user.
 It returns:
 	- The file's byte slice.
-	- A nil error if successful or if the file is not found.
+	- A nil error if successful.
 */
 func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 	// Setup & derive file attributes
 	fileUUID, ok := userdata.FileUUIDs[filename]
 	if !ok {
-		return // Do NOT raise an error if the file is not found.
+		err = errors.New("filename not found for user")
+		return
 	}
 	fileEncKey, ok := userdata.FileEncKeys[fileUUID]
 	if !ok {
