@@ -41,17 +41,22 @@ type FileMetadata struct {
 	CypherUUIDs []uuid.UUID
 }
 
+// The structure definition for the struct (in byte form) sent when sharing
+type sharingRecord struct {
+	EncMessage []byte
+	Signature  []byte
+}
+
+// The structure definition for the struct containing all of the info necessary when sharing
+type Record struct {
+	EncBFileUUID   []byte
+	EncFileEncKey  []byte
+	EncFileHmacKey []byte
+}
+
 /**
 Helper Functions:
 */
-
-// Simple helper function to convert byte slices to UUIDs
-func bytesToUUID(data []byte) (ret uuid.UUID) {
-	for x := range ret {
-		ret[x] = data[x]
-	}
-	return
-}
 
 // Simple helper to generate a random UUID that is NOT a key in the Datastore
 func GenRandUUID() (UUID uuid.UUID) {
@@ -517,7 +522,6 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 	// Encrypt, wrap and store the file's metadata on the Datastore
 	metadataBytes, _ := json.Marshal(metadata)
 	err = SecureDatastoreSet(&fileUUID, &fileHmacKey, &fileEncKey, &metadataBytes)
-
 	return
 }
 
@@ -625,110 +629,136 @@ func (userdata *User) DeleteFile(filename string) (err error) {
 	return
 }
 
-// TODO: Move things around to have logic flow.
+/**
+This method shares a record to the recipient. The sender's filename will not be known to
+the recipient since the underlying file's UUID is the 'file pointer' being sent.
 
-// You may want to define what you actually want to pass as a
-// sharingRecord to serialized/deserialize in the data store.
-type sharingRecord struct {
-}
+Note that we have to encrypt each key and file UUID separately because RSA will not allow
+long strings.
 
-// This creates a sharing record, which is a key pointing to something
-// in the datastore to share with the recipient.
-
-// This enables the recipient to access the encrypted file as well
-// for reading/appending.
-
-// Note that neither the recipient NOR the datastore should gain any
-// information about what the sender calls the file.  Only the
-// recipient can access the sharing record, and only the recipient
-// should be able to know the sender.
-
+It takes:
+	- A filename string = the name of the file to be shared.
+	- A recipient string = the username of recipient user.
+It returns:
+	- A string to be sent to the recipient user.
+	- A nil error if successful.
+*/
 func (userdata *User) ShareFile(filename string, recipient string) (magic_string string, err error) {
-	DocUuid, ok := userdata.FileUUIDs[filename]
+	// Get file UUID and keys.
+	fileUUID, ok := userdata.FileUUIDs[filename]
 	if !ok {
 		err = errors.New("user does not have access to this file - missing docUUID")
 		return
 	}
-	fileEncKey, ok := userdata.FileEncKeys[DocUuid]
+	bFileUUID, _ := fileUUID.MarshalBinary()
+	fileEncKey, ok := userdata.FileEncKeys[fileUUID]
 	if !ok {
 		err = errors.New("missing file encryption key")
 		return
 	}
-	fileHmacKey, ok := userdata.FileHmacKeys[DocUuid]
+	fileHmacKey, ok := userdata.FileHmacKeys[fileUUID]
 	if !ok {
 		err = errors.New("missing MAC key")
 		return
 	}
+
+	// Encrypt each UUID and keys
 	recPKE, ok := userlib.KeystoreGet("enc_" + recipient)
 	if !ok {
 		err = errors.New("invalid recipient - missing public encryption key")
 		return
-	}
-	bDocUuid, err := DocUuid.MarshalBinary()
-	if err != nil {
-		return
-	}
-	message := append(bDocUuid, fileEncKey...)
-	message = append(message, fileHmacKey...)
-	ciphertext, err := userlib.PKEEnc(recPKE, message)
-	if err != nil {
-		return
-	}
 
-	sig, err := userlib.DSSign(userdata.PrivateSigKey, ciphertext)
-	if err != nil {
-		return
 	}
+	encBFileUUID, _ := userlib.PKEEnc(recPKE, bFileUUID)
+	encFileEncKey, _ := userlib.PKEEnc(recPKE, fileEncKey)
+	encFileHmacKey, _ := userlib.PKEEnc(recPKE, fileHmacKey)
 
-	magic_string = string(append(sig, ciphertext...))
+	// Create a record, sign it, and package it for the share message
+	record := Record{encBFileUUID, encFileEncKey, encFileHmacKey}
+	encMessageBytes, _ := json.Marshal(record)
+	sig, _ := userlib.DSSign(userdata.PrivateSigKey, encMessageBytes)
+	magicStringBytes, _ := json.Marshal(sharingRecord{encMessageBytes, sig})
+	magic_string = string(magicStringBytes)
 	return
 }
 
-// Note recipient's filename can be different from the sender's filename.
-// The recipient should not be able to discover the sender's view on
-// what the filename even is!  However, the recipient must ensure that
-// it is authentically from the sender.
-func (userdata *User) ReceiveFile(filename string, sender string, magic_string string) error {
-	bMagicString := []byte(magic_string)
-	sig := bMagicString[:userlib.HashSize]
-	msg := bMagicString[userlib.HashSize:]
+/**
+This method receives a file share message and updates the userdata accordingly.
+Note that it validates the received message before decrypting it to ensure that
+the share message has not been tampered with.
+
+Note that this implementation will always override the user's existing filename
+data with the received file name data. This is technically an undefined behavior
+in the spec.
+
+It takes:
+	- A filename string = the name of the file to save the received file as.
+	- A sender string = the username of user that sent the file.
+	- A string containing the encrypted (and signed) file UUID and keys.
+It returns:
+	- A nil error if successful.
+*/
+func (userdata *User) ReceiveFile(filename string, sender string, magic_string string) (err error) {
+	// Unpack sharingRecord from string and verify it
+	var magicRecord sharingRecord
+	_ = json.Unmarshal([]byte(magic_string), &magicRecord)
 	senderPubSigKey, ok := userlib.KeystoreGet("vfy_" + sender)
 	if !ok {
 		return errors.New("invalid sender")
 	}
-	err := userlib.DSVerify(senderPubSigKey, msg, sig)
+	err = userlib.DSVerify(senderPubSigKey, magicRecord.EncMessage, magicRecord.Signature)
 	if err != nil {
 		return err
 	}
 
-	msg, err = userlib.PKEDec(userdata.PrivateDecKey, msg)
-	if err != nil || len(msg) != 16 + userlib.RSAKeySize * 2 {
+	// Decrypt file UUID and keys
+	var record Record
+	_ = json.Unmarshal(magicRecord.EncMessage, &record)
+	fileUUIDBytes, err := userlib.PKEDec(userdata.PrivateDecKey, record.EncBFileUUID)
+	if err != nil {
 		return err
 	}
-	bDocUuid := msg[:16]
-	fileEncKey := msg[16:16 + userlib.RSAKeySize]
-	fileHmacKey := msg[16+userlib.RSAKeySize:]
-
-	DocUuid, err := uuid.FromBytes(bDocUuid)
+	fileUUID, err := uuid.FromBytes(fileUUIDBytes)
+	if err != nil {
+		return err
+	}
+	fileEncKey, err := userlib.PKEDec(userdata.PrivateDecKey, record.EncFileEncKey)
+	if err != nil {
+		return err
+	}
+	fileHmacKey, err := userlib.PKEDec(userdata.PrivateDecKey, record.EncFileHmacKey)
 	if err != nil {
 		return err
 	}
 
-	userdata.FileUUIDs[filename] = DocUuid
-	userdata.FileEncKeys[DocUuid] = fileEncKey
-	userdata.FileHmacKeys[DocUuid] = fileHmacKey
-	return nil
+	// Update userdata and save
+	userdata.FileUUIDs[filename] = fileUUID
+	userdata.FileEncKeys[fileUUID] = fileEncKey
+	userdata.FileHmacKeys[fileUUID] = fileHmacKey
+	err = userdata.Store()
+	return
 }
 
-// Removes access for all others.
+/**
+This method revokes a file that was shared so that only the user has access to it.
+Note that this implementation allows anyone to revoke a file (not just the file owner)
+since this is technically undefined behavior in the spec.
+
+It takes:
+	- A filename string = the name of the file to be revoked
+It returns:
+	- A nil error if successful.
+*/
 func (userdata *User) RevokeFile(filename string) (err error) {
-	docUUID, ok := userdata.FileUUIDs[filename]
+	fileUUID, ok := userdata.FileUUIDs[filename]
 	if !ok {
 		return errors.New("missing UUID for this filename")
 	}
-	own, ok := userdata.FilesOwned[docUUID]
+	own, ok := userdata.FilesOwned[fileUUID]
 	if !ok || !own {
-		return errors.New("user is not the file creator")
+		// We allow anyone to revoke a file as stated in the spec
+		userlib.DebugMsg("%s is revoking %s, which they do not own",
+			userdata.Username, filename)
 	}
 
 	file, err := userdata.LoadFile(filename)

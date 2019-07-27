@@ -91,7 +91,18 @@ func TestInitAndGet(t *testing.T) {
 		return
 	}
 
+	/**
+
+	 */
+	userlib.DatastoreClear()
+	userlib.KeystoreClear()
+	datastore = userlib.DatastoreGetMap()
+	keystore = userlib.KeystoreGetMap()
+	_, _ = datastore, keystore
+
 	// TODO: more tests to check that stuff is actually encrypted and check PW diffs.
+	// TODO: Check for username differences,
+	// TODO: check or basic UUID/Hash check in dict.
 }
 
 func TestStorage(t *testing.T) {
@@ -152,6 +163,7 @@ func TestStorage(t *testing.T) {
 	}
 	if !reflect.DeepEqual(file, loadedFile) {
 		t.Log("StoreFile overwrite failed. This is acceptable.")
+		// Some implementations don't implement overwrite so this is not a fail.
 	}
 
 	/**
@@ -255,7 +267,14 @@ func TestStorage(t *testing.T) {
 }
 
 func TestShare(t *testing.T) {
-	u, err := GetUser("alice", "fubar")
+	userlib.SetDebugStatus(true)
+	userlib.DatastoreClear()
+	userlib.KeystoreClear()
+	datastore := userlib.DatastoreGetMap()
+	keystore := userlib.KeystoreGetMap()
+	_, _ = datastore, keystore
+
+	u, err := InitUser("alice", "fubar")
 	if err != nil {
 		t.Error("Failed to reload user", err)
 		return
@@ -265,6 +284,9 @@ func TestShare(t *testing.T) {
 		t.Error("Failed to initialize bob", err2)
 		return
 	}
+
+	file := userlib.RandomBytes(userlib.AESBlockSize)
+	u.StoreFile("file1", file)
 
 	var v, v2 []byte
 	var magic_string string
@@ -296,4 +318,5 @@ func TestShare(t *testing.T) {
 		return
 	}
 
+	// TODO: A LOT MORE SHARE TESTS AS THERE ARE A LOT OF EDGE CASES.
 }
