@@ -79,10 +79,6 @@ It returns:
 */
 func SymmetricEnc(key *[]byte, iv *[]byte, data *[]byte) (cyphers *[][]byte, err error) {
 	padCount := userlib.AESBlockSize - (len(*data) % userlib.AESBlockSize)
-	if padCount == 0 {
-		err = errors.New("padding error during symmetric encryption")
-		return
-	}
 	paddedData := make([]byte, padCount+len(*data))
 	for i := 0; i <= len(*data); i++ {
 		if i == len(*data) {
@@ -207,10 +203,6 @@ func SecureDatastoreSet(UUID *uuid.UUID, hmacKey *[]byte, symEncKey *[]byte, dat
 		return
 	}
 	wrappedCyphersBytes, err := json.Marshal(*wrappedCyphersPtr)
-	if err != nil || len(wrappedCyphersBytes) <= 2 {
-		err = errors.New("wrapped userdata marshal failed")
-		return
-	}
 	userlib.DatastoreSet(*UUID, wrappedCyphersBytes)
 	return
 }
@@ -234,10 +226,7 @@ func SecureDatastoreGet(UUID *uuid.UUID, hmacKey *[]byte, symEncKey *[]byte) (da
 	}
 
 	var wrap Wrap
-	err = json.Unmarshal(wrappedCyphersBytes, &wrap)
-	if err != nil {
-		return
-	}
+	_ = json.Unmarshal(wrappedCyphersBytes, &wrap)
 	userdataCyphersPtr, err := Unwrapper(hmacKey, &wrap)
 	if err != nil {
 		return
@@ -258,19 +247,13 @@ It takes:
 It returns:
 	- A nil error if successful.
 */
-func DeriveAndSaveUserAttributes(username *string, password *string, userdata *User) (err error) {
+func DeriveAndSaveUserAttributes(username *string, password *string, userdata *User) {
 	bUsername := []byte(*username)
 	bPassword := []byte(*password)
 
 	userdata.UPH = userlib.Argon2Key(bPassword, bUsername, 32) // User Password Hash
-	rehashedUPH, err := userlib.HMACEval(userdata.UPH, bUsername)
-	if err != nil {
-		return
-	}
-	userdata.UUID, err = uuid.FromBytes(rehashedUPH[:16])
-	if err != nil {
-		return
-	}
+	rehashedUPH, _ := userlib.HMACEval(userdata.UPH, bUsername)
+	userdata.UUID, _ = uuid.FromBytes(rehashedUPH[:16])
 	userdata.symEncKey = userlib.Argon2Key(append([]byte("enc_"), userdata.UPH...),
 		bPassword, uint32(userlib.AESKeySize))
 	userdata.hmacKey = userlib.Argon2Key(append([]byte("mac_"), userdata.UPH...),
@@ -298,11 +281,7 @@ It returns:
 func InitUser(username string, password string) (userdataptr *User, err error) {
 	var userdata User
 	userdataptr = &userdata
-
-	err = DeriveAndSaveUserAttributes(&username, &password, &userdata)
-	if err != nil {
-		return
-	}
+	DeriveAndSaveUserAttributes(&username, &password, &userdata)
 
 	// Initialize the rest of the userdata.
 	userdata.Username = username
@@ -312,14 +291,8 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	userdata.FileHmacKeys = make(map[uuid.UUID][]byte)
 
 	// Set-up and save the asymmetric keys
-	PKenc, PKdec, err := userlib.PKEKeyGen()
-	if err != nil {
-		return
-	}
-	DSsig, DSvfy, err := userlib.DSKeyGen()
-	if err != nil {
-		return
-	}
+	PKenc, PKdec, _ := userlib.PKEKeyGen()
+	DSsig, DSvfy, _ := userlib.DSKeyGen()
 	err = userlib.KeystoreSet("enc_"+username, PKenc)
 	if err != nil {
 		return
@@ -351,17 +324,13 @@ It returns:
 	- A pointer to the User struct that was stored on the Datastore.
 	- A nil error if successful.
 */
-func GetUser(username string, password string) (userdataptr *User, err error) {
+func GetUser(username string, password string) (userdataPtr *User, err error) {
 	var userdata User
-	userdataptr = &userdata
+	userdataPtr = &userdata
+	DeriveAndSaveUserAttributes(&username, &password, &userdata)
 
-	err = DeriveAndSaveUserAttributes(&username, &password, &userdata)
-	if err != nil {
-		return
-	}
-
-	userdataBytesPtr, err := SecureDatastoreGet(&userdataptr.UUID,
-		&userdataptr.hmacKey, &userdataptr.symEncKey)
+	userdataBytesPtr, err := SecureDatastoreGet(&userdataPtr.UUID,
+		&userdataPtr.hmacKey, &userdataPtr.symEncKey)
 	if err != nil {
 		if err.Error() == "UUID not found in keystore" {
 			err = errors.New("username and/or password is not correct")
@@ -369,7 +338,7 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 		return
 	}
 
-	err = json.Unmarshal(*userdataBytesPtr, userdataptr) // overwrite the userdata being used
+	err = json.Unmarshal(*userdataBytesPtr, userdataPtr) // overwrite the userdata being used
 	return
 }
 
@@ -386,11 +355,7 @@ It returns:
 	- A nil error if successful.
 */
 func (userdata *User) Store() (err error) {
-	byteUserdata, err := json.Marshal(userdata)
-	if err != nil || len(byteUserdata) <= 2 {
-		err = errors.New("userdata marshal failed")
-		return
-	}
+	byteUserdata, _ := json.Marshal(userdata)
 	err = SecureDatastoreSet(&userdata.UUID, &userdata.hmacKey,
 		&userdata.symEncKey, &byteUserdata)
 	return
@@ -436,11 +401,7 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 			userlib.DebugMsg("", err)
 			return
 		}
-		err = json.Unmarshal(*metadataBytesPtr, &metadata)
-		if err != nil {
-			userlib.DebugMsg("", err)
-			return
-		}
+		_ = json.Unmarshal(*metadataBytesPtr, &metadata)
 		for _, cypherUUID := range metadata.CypherUUIDs {
 			userlib.DatastoreDelete(cypherUUID)
 		}
@@ -473,11 +434,7 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 	}
 
 	// Encrypt, wrap and store the file's metadata on the Datastore
-	metadataBytes, err := json.Marshal(metadata)
-	if err != nil || len(metadataBytes) <= 2 {
-		userlib.DebugMsg("file metadata marshal failed.")
-		return
-	}
+	metadataBytes, _ := json.Marshal(metadata)
 	err = SecureDatastoreSet(&fileUUID, &fileHmacKey, &fileEncKey, &metadataBytes)
 	if err != nil {
 		userlib.DebugMsg("", err)
@@ -493,7 +450,6 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 	err = userdata.Store()
 	if err != nil {
 		userlib.DebugMsg("", err)
-		return
 	}
 }
 
@@ -533,10 +489,7 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 	if err != nil {
 		return
 	}
-	err = json.Unmarshal(*metadataBytesPtr, &metadata)
-	if err != nil {
-		return
-	}
+	_ = json.Unmarshal(*metadataBytesPtr, &metadata)
 
 	// Fetch, verify and unencrypt last 2 cyphers of file's data
 	last2CypherUUIDs := metadata.CypherUUIDs[len(metadata.CypherUUIDs)-2:]
@@ -573,14 +526,8 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 	}
 
 	// Encrypt, wrap and store the file's metadata on the Datastore
-	metadataBytes, err := json.Marshal(metadata)
-	if err != nil || len(metadataBytes) <= 2 {
-		err = errors.New("file metadata marshal failed")
-	}
+	metadataBytes, _ := json.Marshal(metadata)
 	err = SecureDatastoreSet(&fileUUID, &fileHmacKey, &fileEncKey, &metadataBytes)
-	if err != nil {
-		return
-	}
 
 	return
 }
@@ -619,10 +566,7 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 	if err != nil {
 		return
 	}
-	err = json.Unmarshal(*metadataBytesPtr, &metadata)
-	if err != nil {
-		return
-	}
+	_ = json.Unmarshal(*metadataBytesPtr, &metadata)
 
 	// Fetch, verify, combine cyphers, and unencrypt file's data
 	var cyphers [][]byte
@@ -677,10 +621,7 @@ func (userdata *User) DeleteFile(filename string) (err error) {
 	if err != nil {
 		return
 	}
-	err = json.Unmarshal(*metadataBytesPtr, &metadata)
-	if err != nil {
-		return
-	}
+	_ = json.Unmarshal(*metadataBytesPtr, &metadata)
 
 	// Remove each cypher entry and the metadata entry
 	for _, cypherUUID := range metadata.CypherUUIDs {
