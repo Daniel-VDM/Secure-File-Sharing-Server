@@ -382,7 +382,7 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 
 	fileUUID, overwrite := userdata.FileUUIDs[filename]
 	if overwrite {
-		// Fetch file keys and file UUID
+		// Fetch file keys for overwrite
 		fileEncKey, ok = userdata.FileEncKeys[fileUUID]
 		if !ok {
 			userlib.DebugMsg("file key not found")
