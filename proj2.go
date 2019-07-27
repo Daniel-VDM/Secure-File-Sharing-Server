@@ -390,7 +390,7 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 		}
 		fileHmacKey, ok = userdata.FileHmacKeys[fileUUID]
 		if !ok {
-			userlib.DebugMsg("file Hamc key not found")
+			userlib.DebugMsg("file Hmac key not found")
 			return
 		}
 		_ = userdata.DeleteFile(filename) // It is okay to error here
@@ -706,7 +706,7 @@ func (userdata *User) ReceiveFile(filename string, sender string, magic_string s
 		return err
 	}
 	bDocUuid := msg[:16]
-	fileEncKey := msg[16:16+userlib.RSAKeySize]
+	fileEncKey := msg[16:16 + userlib.RSAKeySize]
 	fileHmacKey := msg[16+userlib.RSAKeySize:]
 
 	DocUuid, err := uuid.FromBytes(bDocUuid)
@@ -722,5 +722,20 @@ func (userdata *User) ReceiveFile(filename string, sender string, magic_string s
 
 // Removes access for all others.
 func (userdata *User) RevokeFile(filename string) (err error) {
-	return
+	docUUID, ok := userdata.FileUUIDs[filename]
+	if !ok {
+		return errors.New("missing UUID for this filename")
+	}
+	own, ok := userdata.FilesOwned[docUUID]
+	if !ok || !own {
+		return errors.New("user is not the file creator")
+	}
+
+	file, err := userdata.LoadFile(filename)
+	if err != nil {
+		return err
+	}
+	// TODO: Remove relevent entries in datastore
+	userdata.StoreFile(filename, file)
+	return nil
 }
