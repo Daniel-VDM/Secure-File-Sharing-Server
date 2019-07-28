@@ -504,7 +504,9 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 
 /**
 This method loads a file in the datastore and does not reveal the filename to the Datastore.
+
 It will error if the file doesn't exist or if the file is corrupted in any way.
+Note that it will NOT raise an error if the file cannot be found.
 
 It takes:
 	- A filename string = the name of the file for THIS particular user.
@@ -516,7 +518,8 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 	// Get file UUID and keys.
 	fileUUID, ok := userdata.FileUUIDs[filename]
 	if !ok {
-		err = errors.New("filename not found for user")
+		userlib.DebugMsg("filename not found for user: %s", userdata.Username)
+		// Do not raise error
 		return
 	}
 	fileEncKey, ok := userdata.FileEncKeys[fileUUID]
@@ -534,6 +537,14 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 	var metadata FileMetadata
 	metadataBytesPtr, err := SecureDatastoreGet(&fileUUID, &fileHmacKey, &fileEncKey)
 	if err != nil {
+		if err.Error() == "UUID not found in keystore" {
+			// Remove file if file is not found for user (do not raise error)
+			userlib.DebugMsg("file not found for user: %s", userdata.Username)
+			delete(userdata.FilesOwned, fileUUID)
+			delete(userdata.FileEncKeys, fileUUID)
+			delete(userdata.FileUUIDs, filename)
+			err = userdata.Store()
+		}
 		return
 	}
 	_ = json.Unmarshal(*metadataBytesPtr, &metadata)

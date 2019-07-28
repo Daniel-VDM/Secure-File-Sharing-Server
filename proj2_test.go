@@ -17,7 +17,7 @@ Real tests that should work for all implementations.
 */
 
 // This assumes that each unique username will only call init once.
-func TestInitAndGetBasic(t *testing.T) {
+func TestInitAndGetBasics(t *testing.T) {
 	userlib.SetDebugStatus(false)
 	userlib.DatastoreClear()
 	userlib.KeystoreClear()
@@ -72,7 +72,7 @@ func TestInitAndGetBasic(t *testing.T) {
 }
 
 // This assumes that each unique username will only call init once.
-func TestInitAndGetCorruptDatastore(t *testing.T) {
+func TestInitAndGetWithCorruptDatastore(t *testing.T) {
 	userlib.SetDebugStatus(false)
 	userlib.DatastoreClear()
 	userlib.KeystoreClear()
@@ -159,9 +159,10 @@ func TestInitAndGetCorruptDatastore(t *testing.T) {
 }
 
 // TODO store file test.
+// TODO break up the tests.
 
 func TestStorage(t *testing.T) {
-	userlib.SetDebugStatus(true)
+	userlib.SetDebugStatus(false)
 	fileNames := []string{"f1", "f2", "f3", "f4", "f5"}
 	userNames := []string{"u1", "u2", "u3", "u4", "u5"}
 
@@ -200,6 +201,15 @@ func TestStorage(t *testing.T) {
 			t.Error("Loaded file is not the same original\n",
 				file, loadedFile)
 			return
+		}
+
+		someFile, err4 := user.LoadFile("bad")
+		if err4 != nil {
+			t.Error("Raised error on a load of a file that DNE.")
+		}
+
+		if someFile != nil {
+			t.Error("Load of a file that DNE did not return nil.")
 		}
 	}
 
@@ -318,6 +328,8 @@ func TestStorage(t *testing.T) {
 	// TODO: Stress test to check for the 'efficient' part.
 	// TODO: More tests to check for the corruption case.
 	// TODO: Write SHARING TESTS that tests for file overwrite AND file appends.
+	// TODO: Sharing test where you load a file that you had revoked and make sure no
+	// error pops up.
 
 }
 
