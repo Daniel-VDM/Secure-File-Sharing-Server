@@ -158,9 +158,6 @@ func TestInitAndGetWithCorruptDatastore(t *testing.T) {
 	}
 }
 
-// TODO store file test.
-// TODO break up the tests.
-
 func TestStorageBasic(t *testing.T) {
 	userlib.SetDebugStatus(false)
 	userlib.DatastoreClear()
