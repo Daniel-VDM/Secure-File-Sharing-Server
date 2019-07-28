@@ -124,7 +124,7 @@ func TestInitAndGetCorruptDatastore(t *testing.T) {
 	userlib.DatastoreClear()
 	_, err = GetUser("bob", "fubar")
 	if err == nil {
-		t.Error("Datastore was corrupted for bob but still got user.")
+		t.Error("Datastore was empty but still got user.")
 		return
 	}
 
@@ -151,21 +151,14 @@ func TestInitAndGetCorruptDatastore(t *testing.T) {
 	}
 	datastore[keys1[0]] = userlib.RandomBytes(len(keys1[0]))
 
-	_, err = GetUser("bob", "fubar")
-	if err == nil {
-		t.Error("Datastore was corrupted for bob but still got user.")
-		return
+	_, err0 := GetUser("bob", "fubar")
+	_, err1 := GetUser("alice", "fubar")
+	if err0 == nil && err1 == nil {
+		t.Error("successfully got all users when datastore was corrupted.")
 	}
-	_, err = GetUser("alice", "fubar")
-	if err != nil {
-		t.Error(err)
-		return
-	}
-
-	// TODO: more tests to check that stuff is actually encrypted and check PW diffs.
-	// TODO: Check for username differences,
-	// TODO: check or basic UUID/Hash check in dict.
 }
+
+// TODO store file test.
 
 func TestStorage(t *testing.T) {
 	userlib.SetDebugStatus(true)
