@@ -358,12 +358,6 @@ func TestShareBasic(t *testing.T) {
 	var v, v2 []byte
 	var magic_string string
 
-	v, err = u.LoadFile("file1")
-	if err != nil {
-		t.Error("Failed to download the file from alice", err)
-		return
-	}
-
 	magic_string, err = u.ShareFile("file1", "bob")
 	if err != nil {
 		t.Error("Failed to share the a file", err)
@@ -466,6 +460,97 @@ func TestShareCorruptMagicString(t *testing.T) {
 	}
 }
 
-func TestShareNameMixup(t *testing.T) {
-	
+func TestShareUsernameMixup(t *testing.T) {
+	userlib.SetDebugStatus(true)
+	userlib.DatastoreClear()
+	userlib.KeystoreClear()
+	datastore := userlib.DatastoreGetMap()
+	keystore := userlib.KeystoreGetMap()
+	_, _ = datastore, keystore
+
+	alice, err := InitUser("alice", "fubar")
+	if err != nil {
+		t.Error("Failed to initialize alice", err)
+		return
+	}
+	bob, err2 := InitUser("bob", "foobar")
+	if err2 != nil {
+		t.Error("Failed to initialize bob", err2)
+		return
+	}
+	carol, err3 := InitUser("carol", "yesterday")
+	if err3 != nil {
+		t.Error("Failed to initialize bob", err2)
+		return
+	}
+
+	file1 := userlib.RandomBytes(userlib.AESBlockSize)
+	alice.StoreFile("file1", file1)
+
+	var v, v2 []byte
+	var magic_string string
+
+	v, err = alice.LoadFile("file1")
+	magic_string, err = alice.ShareFile("file1", "bob")
+	if err != nil {
+		t.Error("Failed to share the a file", err)
+		return
+	}
+	// Bob can get it
+	err = bob.ReceiveFile("file2", "alice", magic_string)
+	if err != nil {
+		t.Error("Failed to receive the share message", err)
+		return
+	}
+	// Carol can't
+	err = carol.ReceiveFile("file2", "alice", magic_string)
+	if err == nil {
+		t.Error("Failed to error with wrong recipient", err)
+		return
+	}
+
+	// Bob got it
+	v2, err = bob.LoadFile("file2")
+	if err != nil {
+		t.Error("Failed to download the file after sharing", err)
+		return
+	}
+	if !reflect.DeepEqual(v, v2) {
+		t.Error("Shared file is not the same", v, v2)
+		return
+	}
+
+	// Carol what are you doing? You don't have access!
+	_, err = carol.LoadFile("file2")
+	if err != nil {
+		t.Error("Should error since Carol shouldn't have this filename", err)
+		return
+	}
+
+	// Typo in sender name
+	err = bob.ReceiveFile("file2", "alLice", magic_string)
+	if err == nil {
+		t.Error("Typo in sender username", err)
+		return
+	}
+
+	// Typo in recipient name.
+	magic_string, err = alice.ShareFile("file1", "boob")
+	if err == nil {
+		t.Error("Can't share with a nonexistent user.", err)
+		return
+	}
+	err = bob.ReceiveFile("file2", "alice", magic_string)
+	if err == nil {
+		t.Error("Bob shouldn't have received access", err)
+		return
+	}
+}
+
+func TestShareFilenameMixup(t *testing.T) {
+
+}
+
+func TestShareInt(t *testing.T) {
+
 }
