@@ -1,6 +1,4 @@
-package main // Might need to change package to proj2 to pass auto grader
-
-//package proj2
+package proj2
 
 import (
 	"encoding/json"
@@ -125,10 +123,7 @@ func SymmetricDec(key *[]byte, cyphers *[][]byte) (data *[]byte, err error) {
 	decSlice := userlib.SymDec(*key, cypher)
 
 	var padStart uint
-	for padStart = uint(len(decSlice) - 1); padStart >= 0; padStart-- {
-		if decSlice[padStart] == 1 {
-			break
-		}
+	for padStart = uint(len(decSlice) - 1); padStart >= 0 && decSlice[padStart] == 0; padStart-- {
 	}
 	decSlice = decSlice[:padStart]
 
@@ -273,8 +268,9 @@ User Init and Get:
 
 /**
 This is the main function that creates a new user and saves them to the Datastore.
-This function assumes that it will be called only once per unique username.
 Note that symmetric encryption / decryption uses AES-CBC mode.
+
+This function assumes that it will be called only once per unique username.
 
 It takes:
 	- Username String.
@@ -298,14 +294,8 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	// Set-up and save the asymmetric keys
 	PKenc, PKdec, _ := userlib.PKEKeyGen()
 	DSsig, DSvfy, _ := userlib.DSKeyGen()
-	err = userlib.KeystoreSet("enc_"+username, PKenc)
-	if err != nil {
-		return
-	}
-	err = userlib.KeystoreSet("vfy_"+username, DSvfy)
-	if err != nil {
-		return
-	}
+	_ = userlib.KeystoreSet("enc_"+username, PKenc)
+	_ = userlib.KeystoreSet("vfy_"+username, DSvfy)
 	userdata.PrivateDecKey = PKdec
 	userdata.PrivateSigKey = DSsig
 

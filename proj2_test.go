@@ -1,6 +1,4 @@
-package main // Might need to change package to proj2 to pass auto grader
-
-//package proj2
+package proj2
 
 import (
 	_ "encoding/hex"
@@ -10,7 +8,7 @@ import (
 	"github.com/ryanleh/cs161-p2/userlib"
 	"reflect"
 	_ "strconv"
-	_ "strings"
+	"strings"
 	"testing"
 )
 
@@ -19,12 +17,8 @@ Real tests that should work for all implementations.
 */
 
 // This assumes that each unique username will only call init once.
-func TestInitAndGet(t *testing.T) {
+func TestInitAndGetBasic(t *testing.T) {
 	userlib.SetDebugStatus(false)
-
-	/**
-	Basic init and get user test.
-	*/
 	userlib.DatastoreClear()
 	userlib.KeystoreClear()
 	datastore := userlib.DatastoreGetMap()
@@ -32,12 +26,12 @@ func TestInitAndGet(t *testing.T) {
 	_, _ = datastore, keystore
 
 	bob, err := InitUser("bob", "fubar")
-	if err != nil {
+	if bob == nil || err != nil {
 		t.Error(err)
 		return
 	}
 	getBob, err := GetUser("bob", "fubar")
-	if err != nil {
+	if getBob == nil || err != nil {
 		t.Error(err)
 		return
 	}
@@ -49,16 +43,44 @@ func TestInitAndGet(t *testing.T) {
 		return
 	}
 
-	/**
-	Corrupted datastore test.
-	*/
+	_, err = GetUser("bob", "wrong")
+	if err == nil {
+		t.Error("Got a user that is suppose to not exist.")
+		return
+	}
+
+	_, err = GetUser("wrong", "fubar")
+	if err == nil {
+		t.Error("Got a user that is suppose to not exist.")
+		return
+	}
+
+	var keys []userlib.UUID
+	var vals [][]byte
+	for k, v := range datastore {
+		keys = append(keys, k)
+		vals = append(vals, v)
+	}
+
+	for val := range vals {
+		if strings.Contains("bob", string(val)) || strings.Contains("alice", string(val)) {
+			t.Error("Username is not obscured.")
+			return
+		}
+	}
+
+}
+
+// This assumes that each unique username will only call init once.
+func TestInitAndGetCorruptDatastore(t *testing.T) {
+	userlib.SetDebugStatus(false)
 	userlib.DatastoreClear()
 	userlib.KeystoreClear()
-	datastore = userlib.DatastoreGetMap()
-	keystore = userlib.KeystoreGetMap()
+	datastore := userlib.DatastoreGetMap()
+	keystore := userlib.KeystoreGetMap()
 	_, _ = datastore, keystore
 
-	_, err = InitUser("bob", "fubar")
+	_, err := InitUser("bob", "fubar")
 	if err != nil {
 		t.Error(err)
 		return
@@ -87,18 +109,58 @@ func TestInitAndGet(t *testing.T) {
 	}
 	_, err = GetUser("bob", "fubar")
 	if err == nil {
-		t.Error("Datastore was corrupted for alice but still got user.")
+		t.Error("Datastore was corrupted for bob but still got user.")
 		return
 	}
 
-	/**
+	userlib.DatastoreClear()
+	userlib.KeystoreClear()
 
-	 */
+	_, err = InitUser("bob", "fubar")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	userlib.DatastoreClear()
+	_, err = GetUser("bob", "fubar")
+	if err == nil {
+		t.Error("Datastore was corrupted for bob but still got user.")
+		return
+	}
+
 	userlib.DatastoreClear()
 	userlib.KeystoreClear()
 	datastore = userlib.DatastoreGetMap()
-	keystore = userlib.KeystoreGetMap()
-	_, _ = datastore, keystore
+
+	_, err = InitUser("bob", "fubar")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	_, err = InitUser("alice", "fubar")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	var keys1 []userlib.UUID
+	var vals1 [][]byte
+	for k, v := range datastore {
+		keys1 = append(keys1, k)
+		vals1 = append(vals1, v)
+	}
+	datastore[keys1[0]] = userlib.RandomBytes(len(keys1[0]))
+
+	_, err = GetUser("bob", "fubar")
+	if err == nil {
+		t.Error("Datastore was corrupted for bob but still got user.")
+		return
+	}
+	_, err = GetUser("alice", "fubar")
+	if err != nil {
+		t.Error(err)
+		return
+	}
 
 	// TODO: more tests to check that stuff is actually encrypted and check PW diffs.
 	// TODO: Check for username differences,
