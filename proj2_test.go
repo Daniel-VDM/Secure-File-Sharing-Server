@@ -17,7 +17,7 @@ Real tests that should work for all implementations.
 */
 
 // This assumes that each unique username will only call init once.
-func TestInitAndGetBasic(t *testing.T) {
+func TestInitAndGetBasics(t *testing.T) {
 	userlib.SetDebugStatus(false)
 	userlib.DatastoreClear()
 	userlib.KeystoreClear()
@@ -72,7 +72,7 @@ func TestInitAndGetBasic(t *testing.T) {
 }
 
 // This assumes that each unique username will only call init once.
-func TestInitAndGetCorruptDatastore(t *testing.T) {
+func TestInitAndGetWithCorruptDatastore(t *testing.T) {
 	userlib.SetDebugStatus(false)
 	userlib.DatastoreClear()
 	userlib.KeystoreClear()
@@ -124,7 +124,7 @@ func TestInitAndGetCorruptDatastore(t *testing.T) {
 	userlib.DatastoreClear()
 	_, err = GetUser("bob", "fubar")
 	if err == nil {
-		t.Error("Datastore was corrupted for bob but still got user.")
+		t.Error("Datastore was empty but still got user.")
 		return
 	}
 
@@ -151,24 +151,18 @@ func TestInitAndGetCorruptDatastore(t *testing.T) {
 	}
 	datastore[keys1[0]] = userlib.RandomBytes(len(keys1[0]))
 
-	_, err = GetUser("bob", "fubar")
-	if err == nil {
-		t.Error("Datastore was corrupted for bob but still got user.")
-		return
+	_, err0 := GetUser("bob", "fubar")
+	_, err1 := GetUser("alice", "fubar")
+	if err0 == nil && err1 == nil {
+		t.Error("successfully got all users when datastore was corrupted.")
 	}
-	_, err = GetUser("alice", "fubar")
-	if err != nil {
-		t.Error(err)
-		return
-	}
-
-	// TODO: more tests to check that stuff is actually encrypted and check PW diffs.
-	// TODO: Check for username differences,
-	// TODO: check or basic UUID/Hash check in dict.
 }
 
+// TODO store file test.
+// TODO break up the tests.
+
 func TestStorage(t *testing.T) {
-	userlib.SetDebugStatus(true)
+	userlib.SetDebugStatus(false)
 	fileNames := []string{"f1", "f2", "f3", "f4", "f5"}
 	userNames := []string{"u1", "u2", "u3", "u4", "u5"}
 
@@ -207,6 +201,15 @@ func TestStorage(t *testing.T) {
 			t.Error("Loaded file is not the same original\n",
 				file, loadedFile)
 			return
+		}
+
+		someFile, err4 := user.LoadFile("bad")
+		if err4 != nil {
+			t.Error("Raised error on a load of a file that DNE.")
+		}
+
+		if someFile != nil {
+			t.Error("Load of a file that DNE did not return nil.")
 		}
 	}
 
@@ -325,6 +328,8 @@ func TestStorage(t *testing.T) {
 	// TODO: Stress test to check for the 'efficient' part.
 	// TODO: More tests to check for the corruption case.
 	// TODO: Write SHARING TESTS that tests for file overwrite AND file appends.
+	// TODO: Sharing test where you load a file that you had revoked and make sure no
+	// error pops up.
 
 }
 

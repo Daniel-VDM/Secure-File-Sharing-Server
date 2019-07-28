@@ -78,9 +78,8 @@ It takes:
 It returns:
 	- A pointer to a slice of byte slice cypher texts s.t. the first
       element is the IV byte slice.
-	- A nil error if successful.
 */
-func SymmetricEnc(key *[]byte, iv *[]byte, data *[]byte) (cyphers *[][]byte, err error) {
+func SymmetricEnc(key *[]byte, iv *[]byte, data *[]byte) (cyphers *[][]byte) {
 	padCount := userlib.AESBlockSize - (len(*data) % userlib.AESBlockSize)
 	paddedData := make([]byte, padCount+len(*data))
 	for i := 0; i <= len(*data); i++ {
@@ -112,9 +111,8 @@ It takes:
 	- A pointer to a slice of byte slice cypher texts s.t. the first element is the IV byte slice.
 It returns:
 	- A pointer to a byte slice of the unencrypted data
-	- A nil error if successful.
 */
-func SymmetricDec(key *[]byte, cyphers *[][]byte) (data *[]byte, err error) {
+func SymmetricDec(key *[]byte, cyphers *[][]byte) (data *[]byte) {
 	var cypher []byte
 	for _, c := range *cyphers {
 		cypher = append(cypher, c...)
@@ -194,10 +192,7 @@ It returns:
 */
 func SecureDatastoreSet(UUID *uuid.UUID, hmacKey *[]byte, symEncKey *[]byte, data *[]byte) (err error) {
 	IV := userlib.RandomBytes(userlib.AESBlockSize)
-	encCyphersPtr, err := SymmetricEnc(symEncKey, &IV, data)
-	if err != nil {
-		return
-	}
+	encCyphersPtr := SymmetricEnc(symEncKey, &IV, data)
 	wrappedCyphersPtr, err := Wrapper(hmacKey, encCyphersPtr)
 	if err != nil {
 		return
@@ -231,7 +226,7 @@ func SecureDatastoreGet(UUID *uuid.UUID, hmacKey *[]byte, symEncKey *[]byte) (da
 	if err != nil {
 		return
 	}
-	data, err = SymmetricDec(symEncKey, userdataCyphersPtr)
+	data = SymmetricDec(symEncKey, userdataCyphersPtr)
 	return
 }
 
@@ -258,7 +253,6 @@ func DeriveAndSaveUserAttributes(username *string, password *string, userdata *U
 		bPassword, uint32(userlib.AESKeySize))
 	userdata.hmacKey = userlib.Argon2Key(append([]byte("mac_"), userdata.UPH...),
 		bPassword, uint32(userlib.AESKeySize))
-
 	return
 }
 
@@ -398,18 +392,14 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 
 	// Encrypt file data and get cyphers
 	IV := userlib.RandomBytes(userlib.AESBlockSize)
-	cyphersPtr, err := SymmetricEnc(&fileEncKey, &IV, &data)
-	if err != nil {
-		userlib.DebugMsg("file data encryption failed.")
-		return
-	}
+	cyphersPtr := SymmetricEnc(&fileEncKey, &IV, &data)
 
 	// Store each cypher on the Datastore
 	var metadata FileMetadata
 	metadata.CypherUUIDs = make([]uuid.UUID, len(*cyphersPtr))
 	for i := range metadata.CypherUUIDs {
 		metadata.CypherUUIDs[i] = GenRandUUID()
-		err = SecureDatastoreSet(&metadata.CypherUUIDs[i], &fileHmacKey,
+		err := SecureDatastoreSet(&metadata.CypherUUIDs[i], &fileHmacKey,
 			&fileEncKey, &(*cyphersPtr)[i])
 		if err != nil {
 			userlib.DebugMsg("", err)
@@ -419,7 +409,7 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 
 	// Encrypt, wrap and store the file's metadata on the Datastore
 	metadataBytes, _ := json.Marshal(metadata)
-	err = SecureDatastoreSet(&fileUUID, &fileHmacKey, &fileEncKey, &metadataBytes)
+	err := SecureDatastoreSet(&fileUUID, &fileHmacKey, &fileEncKey, &metadataBytes)
 	if err != nil {
 		userlib.DebugMsg("", err)
 		return
@@ -488,15 +478,12 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 
 	// Append to the end of our file and encrypt it
 	cyphers := [][]byte{*cypher0BytesPtr, *cypher1BytesPtr}
-	oldEndDataPtr, err := SymmetricDec(&fileEncKey, &cyphers)
+	oldEndDataPtr := SymmetricDec(&fileEncKey, &cyphers)
 	if err != nil {
 		return
 	}
 	endData := append(*oldEndDataPtr, data...)
-	cyphersPtr, err := SymmetricEnc(&fileEncKey, cypher0BytesPtr, &endData)
-	if err != nil {
-		return
-	}
+	cyphersPtr := SymmetricEnc(&fileEncKey, cypher0BytesPtr, &endData)
 
 	// Store the new cyphers in the Datastore and update metadata
 	metadata.CypherUUIDs = metadata.CypherUUIDs[:len(metadata.CypherUUIDs)-1]
@@ -517,7 +504,9 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 
 /**
 This method loads a file in the datastore and does not reveal the filename to the Datastore.
+
 It will error if the file doesn't exist or if the file is corrupted in any way.
+Note that it will NOT raise an error if the file cannot be found.
 
 It takes:
 	- A filename string = the name of the file for THIS particular user.
@@ -529,7 +518,8 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 	// Get file UUID and keys.
 	fileUUID, ok := userdata.FileUUIDs[filename]
 	if !ok {
-		err = errors.New("filename not found for user")
+		userlib.DebugMsg("filename not found for user: %s", userdata.Username)
+		// Do not raise error
 		return
 	}
 	fileEncKey, ok := userdata.FileEncKeys[fileUUID]
@@ -547,6 +537,14 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 	var metadata FileMetadata
 	metadataBytesPtr, err := SecureDatastoreGet(&fileUUID, &fileHmacKey, &fileEncKey)
 	if err != nil {
+		if err.Error() == "UUID not found in keystore" {
+			// Remove file if file is not found for user (do not raise error)
+			userlib.DebugMsg("file not found for user: %s", userdata.Username)
+			delete(userdata.FilesOwned, fileUUID)
+			delete(userdata.FileEncKeys, fileUUID)
+			delete(userdata.FileUUIDs, filename)
+			err = userdata.Store()
+		}
 		return
 	}
 	_ = json.Unmarshal(*metadataBytesPtr, &metadata)
@@ -561,7 +559,7 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 		}
 		cyphers = append(cyphers, *cypherPtr)
 	}
-	dataPtr, err := SymmetricDec(&fileEncKey, &cyphers)
+	dataPtr := SymmetricDec(&fileEncKey, &cyphers)
 	data = *dataPtr
 	return
 }
