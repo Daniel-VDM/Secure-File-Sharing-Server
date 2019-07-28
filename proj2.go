@@ -221,7 +221,10 @@ func SecureDatastoreGet(UUID *uuid.UUID, hmacKey *[]byte, symEncKey *[]byte) (da
 	}
 
 	var wrap Wrap
-	_ = json.Unmarshal(wrappedCyphersBytes, &wrap)
+	err = json.Unmarshal(wrappedCyphersBytes, &wrap)
+	if err != nil {
+		return
+	}
 	userdataCyphersPtr, err := Unwrapper(hmacKey, &wrap)
 	if err != nil {
 		return
@@ -581,8 +584,7 @@ func (userdata *User) DeleteFile(filename string) (err error) {
 	// Get file UUID and keys.
 	fileUUID, ok := userdata.FileUUIDs[filename]
 	if !ok {
-		// Nothing to delete
-		return
+		return // Nothing to delete
 	}
 	fileEncKey, ok := userdata.FileEncKeys[fileUUID]
 	if !ok {
@@ -689,7 +691,10 @@ It returns:
 func (userdata *User) ReceiveFile(filename string, sender string, magic_string string) (err error) {
 	// Unpack sharingRecord from string and verify it
 	var magicRecord sharingRecord
-	_ = json.Unmarshal([]byte(magic_string), &magicRecord)
+	err = json.Unmarshal([]byte(magic_string), &magicRecord)
+	if err != nil {
+		return
+	}
 	senderPubSigKey, ok := userlib.KeystoreGet("vfy_" + sender)
 	if !ok {
 		return errors.New("invalid sender")
