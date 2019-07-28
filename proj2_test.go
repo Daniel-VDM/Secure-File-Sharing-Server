@@ -158,23 +158,16 @@ func TestInitAndGetWithCorruptDatastore(t *testing.T) {
 	}
 }
 
-// TODO store file test.
-// TODO break up the tests.
-
-func TestStorage(t *testing.T) {
+func TestStorageBasic(t *testing.T) {
 	userlib.SetDebugStatus(false)
-	fileNames := []string{"f1", "f2", "f3", "f4", "f5"}
-	userNames := []string{"u1", "u2", "u3", "u4", "u5"}
-
-	/**
-	Basic functionality test with basic edge cases.
-	*/
 	userlib.DatastoreClear()
 	userlib.KeystoreClear()
 	datastore := userlib.DatastoreGetMap()
 	keystore := userlib.KeystoreGetMap()
 	_, _ = datastore, keystore
 
+	fileNames := []string{"f1", "f2", "f3", "f4", "f5"}
+	userNames := []string{"u1", "u2", "u3", "u4", "u5"}
 	for i, offset := range []int{-4, -1, 0, 1, 7} {
 		user, err1 := InitUser(userNames[i], "fubar")
 		if err1 != nil {
@@ -231,11 +224,84 @@ func TestStorage(t *testing.T) {
 		// Some implementations don't implement overwrite so this is not a fail.
 	}
 
-	/**
-	Basic append test with basic edge cases.
-	*/
+	file = make([]byte, userlib.AESBlockSize)
+	file[0] = 1
+	file[3] = 1
+	user.StoreFile("test", file)
+	loadedFile, err3 = user.LoadFile("test")
+	if err3 != nil {
+		t.Error("Failed to upload and download", err3)
+		return
+	}
+	if !reflect.DeepEqual(file, loadedFile) {
+		t.Log("StoreFile overwrite failed. This is acceptable.")
+		// Some implementations don't implement overwrite so this is not a fail.
+	}
+
+}
+
+func TestStorageWithCorruptDatastore(t *testing.T) {
+	userlib.SetDebugStatus(false)
+	userlib.DatastoreClear()
+	userlib.KeystoreClear()
+	datastore := userlib.DatastoreGetMap()
+	keystore := userlib.KeystoreGetMap()
+	_, _ = datastore, keystore
+
+	fileNames := []string{"f1", "f2", "f3", "f4", "f5"}
+	userNames := []string{"u1", "u2", "u3", "u4", "u5"}
+	for i, offset := range []int{-4, -1, 0, 1, 7} {
+		user, err1 := InitUser(userNames[i], "fubar")
+		if err1 != nil {
+			t.Error(err1)
+			return
+		}
+
+		file := userlib.RandomBytes(userlib.AESBlockSize*7 - offset)
+		user.StoreFile(fileNames[i], file)
+
+		// Get user to check for userdata update.
+		user, err2 := GetUser(userNames[i], "fubar")
+		if err2 != nil {
+			t.Error(err2)
+			return
+		}
+
+		var keys []userlib.UUID
+		var vals [][]byte
+		for k, v := range datastore {
+			keys = append(keys, k)
+			vals = append(vals, v)
+		}
+
+		errored := false
+		for k := range keys {
+			datastore[keys[k]] = userlib.RandomBytes(len(vals[k]))
+			_, err := user.LoadFile(fileNames[i])
+			if err != nil {
+				errored = true
+			}
+			datastore[keys[k]] = vals[k]
+		}
+
+		if !errored {
+			t.Error("Corrupted datastore but no failed file load.")
+		}
+	}
+}
+
+func TestAppendBasic(t *testing.T) {
+	userlib.SetDebugStatus(false)
+	userlib.DatastoreClear()
+	userlib.KeystoreClear()
+	datastore := userlib.DatastoreGetMap()
+	keystore := userlib.KeystoreGetMap()
+	_, _ = datastore, keystore
+
+	fileNames := []string{"f1", "f2", "f3", "f4", "f5"}
+	userNames := []string{"u1", "u2", "u3", "u4", "u5"}
 	for i, offset1 := range []int{-4, -1, 0, 1, 7} {
-		for _, offset2 := range []int{-4, -1, 0, 1, 7} {
+		for _, offset2 := range []int{0, 1, 7} {
 			userlib.DatastoreClear()
 			userlib.KeystoreClear()
 
@@ -246,7 +312,7 @@ func TestStorage(t *testing.T) {
 			}
 
 			file := userlib.RandomBytes(userlib.AESBlockSize - offset1)
-			toAppend := userlib.RandomBytes(userlib.AESBlockSize - offset2)
+			toAppend := userlib.RandomBytes(userlib.AESBlockSize * offset2)
 
 			user.StoreFile(fileNames[i], file)
 			err1 := user.AppendFile(fileNames[i], toAppend)
@@ -276,15 +342,33 @@ func TestStorage(t *testing.T) {
 		}
 	}
 
-	/**
-	Basic append test with multiple files.
-	*/
+	user, err2 := GetUser("u5", "fubar")
+	if err2 != nil {
+		t.Error(err2)
+		return
+	}
+	err1 := user.AppendFile("wrong", []byte{0, 0})
+	if err1 == nil {
+		t.Error("Appended to a file that does not exist.")
+		return
+	}
+	file, err := user.LoadFile("wrong")
+	if err != nil || file != nil {
+		t.Error("Loaded a file that does not exist.")
+		return
+	}
+}
+
+func TestAppendMultipleFiles(t *testing.T) {
+	userlib.SetDebugStatus(false)
 	userlib.DatastoreClear()
 	userlib.KeystoreClear()
-	datastore = userlib.DatastoreGetMap()
-	keystore = userlib.KeystoreGetMap()
+	datastore := userlib.DatastoreGetMap()
+	keystore := userlib.KeystoreGetMap()
 	_, _ = datastore, keystore
 
+	fileNames := []string{"f1", "f2", "f3", "f4", "f5"}
+	userNames := []string{"u1", "u2", "u3", "u4", "u5"}
 	for i, offset1 := range []int{-4, -1, 0, 1, 7} {
 		user, err0 := InitUser(userNames[i], "fubar")
 		if err0 != nil {
@@ -321,16 +405,99 @@ func TestStorage(t *testing.T) {
 			return
 		}
 	}
+}
 
-	// TODO: Tests for nil data on file loads that have wrong file name
-	// overall, consider the cases where the data is the things that throws an error.
-	// TODO: tests for testing if its global vars.
-	// TODO: Stress test to check for the 'efficient' part.
-	// TODO: More tests to check for the corruption case.
-	// TODO: Write SHARING TESTS that tests for file overwrite AND file appends.
-	// TODO: Sharing test where you load a file that you had revoked and make sure no
-	// error pops up.
+func TestAppendWithCorruptDatastore(t *testing.T) {
+	userlib.SetDebugStatus(false)
+	userlib.DatastoreClear()
+	userlib.KeystoreClear()
+	datastore := userlib.DatastoreGetMap()
+	keystore := userlib.KeystoreGetMap()
+	_, _ = datastore, keystore
 
+	user, err0 := InitUser("bob", "fubar")
+	if err0 != nil {
+		t.Error(err0)
+		return
+	}
+
+	file := userlib.RandomBytes(userlib.AESBlockSize)
+	toAppend := userlib.RandomBytes(userlib.AESBlockSize)
+
+	user.StoreFile("test", file)
+
+	var keys []userlib.UUID
+	var vals [][]byte
+	for k, v := range datastore {
+		keys = append(keys, k)
+		vals = append(vals, v)
+	}
+	userlib.DatastoreSet(keys[0], vals[1])
+	for i := 1; i < len(keys); i++ {
+		userlib.DatastoreSet(keys[i], vals[0])
+	}
+
+	err1 := user.AppendFile("test", toAppend)
+	if err1 == nil {
+		t.Error("Successful append on a corrupted file")
+		return
+	}
+
+	userlib.DatastoreClear()
+	userlib.KeystoreClear()
+	datastore = userlib.DatastoreGetMap()
+
+	fileNames := []string{"f1", "f2", "f3", "f4", "f5"}
+	userNames := []string{"u1", "u2", "u3", "u4", "u5"}
+	for i, offset := range []int{-4, -1, 0, 1, 7} {
+		user, err1 := InitUser(userNames[i], "fubar")
+		if err1 != nil {
+			t.Error(err1)
+			return
+		}
+
+		file := userlib.RandomBytes(userlib.AESBlockSize*7 - offset)
+		toAppend := userlib.RandomBytes(userlib.AESBlockSize)
+		user.StoreFile(fileNames[i], file)
+		err1 = user.AppendFile(fileNames[i], toAppend)
+		if err1 != nil {
+			t.Error("Failed to append")
+			return
+		}
+
+		loadedFile, err3 := user.LoadFile(fileNames[i])
+		if err3 != nil {
+			t.Error(err3)
+			return
+		}
+		refAppend := append(file, toAppend...)
+		if !reflect.DeepEqual(refAppend, loadedFile) {
+			t.Error("Loaded (appended) file is not the same as reference\n",
+				refAppend, "\n", loadedFile)
+			return
+		}
+
+		var keys []userlib.UUID
+		var vals [][]byte
+		for k, v := range datastore {
+			keys = append(keys, k)
+			vals = append(vals, v)
+		}
+
+		errored := false
+		for k := range keys {
+			datastore[keys[k]] = userlib.RandomBytes(len(vals[k]))
+			loadedFile, err3 = user.LoadFile(fileNames[i])
+			if err3 != nil {
+				errored = true
+			}
+			datastore[keys[k]] = vals[k]
+		}
+
+		if !errored {
+			t.Error("Corrupted datastore but no failed file load.")
+		}
+	}
 }
 
 func TestShareBasic(t *testing.T) {
@@ -355,7 +522,7 @@ func TestShareBasic(t *testing.T) {
 	file := userlib.RandomBytes(userlib.AESBlockSize)
 	u.StoreFile("file1", file)
 
-	var v, v2 []byte
+	var v2 []byte
 	var magic_string string
 
 	magic_string, err = u.ShareFile("file1", "bob")
@@ -374,8 +541,8 @@ func TestShareBasic(t *testing.T) {
 		t.Error("Failed to download the file after sharing", err)
 		return
 	}
-	if !reflect.DeepEqual(v, v2) {
-		t.Error("Shared file is not the same", v, v2)
+	if !reflect.DeepEqual(file, v2) {
+		t.Error("Shared file is not the same", file, v2)
 		return
 	}
 
@@ -426,7 +593,7 @@ func TestShareCorruptMagicString(t *testing.T) {
 			t.Error("Manipulation of magic string should've errored")
 			return
 		}
-		msg = magic_string[:(i / 2)] + magic_string[(len(magic_string) - (i / 2)):]
+		msg = magic_string[:(i/2)] + magic_string[(len(magic_string)-(i/2)):]
 		err = bob.ReceiveFile("file2", "alice", msg)
 		if err == nil {
 			t.Error("Manipulation of magic string should've errored")
@@ -553,4 +720,98 @@ func TestShareFilenameMixup(t *testing.T) {
 
 func TestShareInt(t *testing.T) {
 
+}
+
+func TestStuffAfterRevoke(t *testing.T) {
+	userlib.SetDebugStatus(true)
+	userlib.DatastoreClear()
+	userlib.KeystoreClear()
+	datastore := userlib.DatastoreGetMap()
+	keystore := userlib.KeystoreGetMap()
+	_, _ = datastore, keystore
+
+	u, err := InitUser("alice", "fubar")
+	if err != nil {
+		t.Error("Failed to initialize alice", err)
+		return
+	}
+	u2, err2 := InitUser("bob", "foobar")
+	if err2 != nil {
+		t.Error("Failed to initialize bob", err2)
+		return
+	}
+
+	file := userlib.RandomBytes(userlib.AESBlockSize)
+	u.StoreFile("file1", file)
+
+	magic_string, err := u.ShareFile("file1", "bob")
+	if err != nil {
+		t.Error("Failed to share the a file", err)
+		return
+	}
+	err = u2.ReceiveFile("file2", "alice", magic_string)
+	if err != nil {
+		t.Error("Failed to receive the share message", err)
+		return
+	}
+
+	v2, err := u2.LoadFile("file2")
+	if err != nil {
+		t.Error("Failed to download the file after sharing", err)
+		return
+	}
+	if !reflect.DeepEqual(file, v2) {
+		t.Error("Shared file is not the same", file, v2)
+		return
+	}
+
+	err = u.RevokeFile("file1")
+	if err != nil {
+		t.Error("Revoke failed")
+	}
+
+	file2, err := u2.LoadFile("file2")
+	if err != nil || reflect.DeepEqual(file2, file) {
+		t.Error("Loaded a file that was revoked")
+		return
+	}
+
+	magic_string, err = u.ShareFile("file1", "bob")
+	if err != nil {
+		t.Error("Failed to share the a file", err)
+		return
+	}
+	err = u2.ReceiveFile("file2", "alice", magic_string)
+	if err != nil {
+		t.Error("Failed to receive the share message", err)
+		return
+	}
+
+	toAppend := userlib.RandomBytes(userlib.AESBlockSize)
+
+	err = u.AppendFile("file1", toAppend)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	file2, err = u2.LoadFile("file2")
+	if err != nil || file2 == nil {
+		t.Error("Failed to load a shared file")
+		return
+	}
+	if !reflect.DeepEqual(file2, append(file, toAppend...)) {
+		t.Error("Receiver cannot view edits to shared file.")
+	}
+
+	err = u.RevokeFile("file1")
+	if err != nil {
+		t.Error("Revoke failed")
+	}
+
+	err = u2.AppendFile("file2", toAppend)
+	if err == nil {
+		t.Error("Able to append to a revoked file")
+		return
+	}
 }

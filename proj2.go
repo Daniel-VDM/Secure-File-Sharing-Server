@@ -466,7 +466,11 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 	if err != nil {
 		return
 	}
-	_ = json.Unmarshal(*metadataBytesPtr, &metadata)
+	err = json.Unmarshal(*metadataBytesPtr, &metadata)
+	if err != nil || len(metadata.CypherUUIDs) < 2 {
+		err = errors.New("failed to load file's metadata")
+		return
+	}
 
 	// Fetch, verify and unencrypt last 2 cyphers of file's data
 	last2CypherUUIDs := metadata.CypherUUIDs[len(metadata.CypherUUIDs)-2:]
@@ -550,7 +554,11 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 		}
 		return
 	}
-	_ = json.Unmarshal(*metadataBytesPtr, &metadata)
+	err = json.Unmarshal(*metadataBytesPtr, &metadata)
+	if err != nil || len(metadata.CypherUUIDs) < 2 {
+		err = errors.New("failed to load file's metadata")
+		return
+	}
 
 	// Fetch, verify, combine cyphers, and unencrypt file's data
 	var cyphers [][]byte
@@ -603,7 +611,11 @@ func (userdata *User) DeleteFile(filename string) (err error) {
 	if err != nil {
 		return
 	}
-	_ = json.Unmarshal(*metadataBytesPtr, &metadata)
+	err = json.Unmarshal(*metadataBytesPtr, &metadata)
+	if err != nil || len(metadata.CypherUUIDs) < 2 {
+		err = errors.New("failed to load file's metadata")
+		return
+	}
 
 	// Remove each cypher entry and the metadata entry
 	for _, cypherUUID := range metadata.CypherUUIDs {
@@ -706,7 +718,10 @@ func (userdata *User) ReceiveFile(filename string, sender string, magic_string s
 
 	// Decrypt file UUID and keys
 	var record Record
-	_ = json.Unmarshal(magicRecord.EncMessage, &record)
+	err = json.Unmarshal(magicRecord.EncMessage, &record)
+	if err != nil {
+		return
+	}
 	fileUUIDBytes, err := userlib.PKEDec(userdata.PrivateDecKey, record.EncBFileUUID)
 	if err != nil {
 		return err
