@@ -328,7 +328,7 @@ func TestStorage(t *testing.T) {
 
 }
 
-func TestShare(t *testing.T) {
+func TestShareBasic(t *testing.T) {
 	userlib.SetDebugStatus(true)
 	userlib.DatastoreClear()
 	userlib.KeystoreClear()
@@ -338,7 +338,7 @@ func TestShare(t *testing.T) {
 
 	u, err := InitUser("alice", "fubar")
 	if err != nil {
-		t.Error("Failed to reload user", err)
+		t.Error("Failed to initialize alice", err)
 		return
 	}
 	u2, err2 := InitUser("bob", "foobar")
@@ -380,5 +380,87 @@ func TestShare(t *testing.T) {
 		return
 	}
 
-	// TODO: A LOT MORE SHARE TESTS AS THERE ARE A LOT OF EDGE CASES.
+}
+
+func TestShareCorruptMagicString(t *testing.T) {
+	userlib.SetDebugStatus(true)
+	userlib.DatastoreClear()
+	userlib.KeystoreClear()
+	datastore := userlib.DatastoreGetMap()
+	keystore := userlib.KeystoreGetMap()
+	_, _ = datastore, keystore
+
+	alice, err := InitUser("alice", "fubar")
+	if err != nil {
+		t.Error("Failed to initialize alice", err)
+		return
+	}
+	bob, err2 := InitUser("bob", "foobar")
+	if err2 != nil {
+		t.Error("Failed to initialize bob", err2)
+		return
+	}
+
+	file := userlib.RandomBytes(userlib.AESBlockSize)
+	alice.StoreFile("file1", file)
+
+	var magic_string string
+
+	_, err = alice.LoadFile("file1")
+	if err != nil {
+		t.Error("Failed to download the file from alice", err)
+		return
+	}
+
+	magic_string, err = alice.ShareFile("file1", "bob")
+	if err != nil {
+		t.Error("Failed to share the a file", err)
+		return
+	}
+	var msg string
+
+	// Slicing
+	for i := 1; i < len(magic_string); i += 5 {
+		msg = magic_string[:i]
+		err = bob.ReceiveFile("file2", "alice", msg)
+		if err == nil {
+			t.Error("Manipulation of magic string should've errored")
+			return
+		}
+		msg = magic_string[:(i / 2)] + magic_string[(len(magic_string) - (i / 2)):]
+		err = bob.ReceiveFile("file2", "alice", msg)
+		if err == nil {
+			t.Error("Manipulation of magic string should've errored")
+			return
+		}
+		msg = magic_string[:i] + string(userlib.RandomBytes(i)) + magic_string[i:]
+		err = bob.ReceiveFile("file2", "alice", msg)
+		if err == nil {
+			t.Error("Manipulation of magic string should've errored")
+			return
+		}
+	}
+
+	// Random sharing string that isn't magic_string
+	msg = string(userlib.RandomBytes(len(magic_string)))
+	for msg == magic_string {
+		msg = string(userlib.RandomBytes(len(magic_string)))
+	}
+	err = bob.ReceiveFile("file2", "alice", msg)
+	if err == nil {
+		t.Error("Random magic string should've errored")
+		return
+	}
+
+	// Passing in empty sharing string
+	msg = ""
+	err = bob.ReceiveFile("file2", "alice", msg)
+	if err == nil {
+		t.Error("Empty magic string should've errored")
+		return
+	}
+}
+
+func TestShareNameMixup(t *testing.T) {
+	
 }
