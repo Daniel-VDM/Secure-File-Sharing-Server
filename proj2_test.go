@@ -525,7 +525,7 @@ func TestShareBasic(t *testing.T) {
 	var v2 []byte
 	var magic_string string
 
-	v, err = u.LoadFile("file1")
+	v, err := u.LoadFile("file1")
 	if err != nil {
 		t.Error("Failed to load file1", err)
 		return
