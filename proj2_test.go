@@ -501,7 +501,7 @@ func TestAppendWithCorruptDatastore(t *testing.T) {
 }
 
 func TestShareBasic(t *testing.T) {
-	userlib.SetDebugStatus(true)
+	userlib.SetDebugStatus(false)
 	userlib.DatastoreClear()
 	userlib.KeystoreClear()
 	datastore := userlib.DatastoreGetMap()
@@ -571,7 +571,7 @@ func TestShareBasic(t *testing.T) {
 }
 
 func TestShareCorruptMagicString(t *testing.T) {
-	userlib.SetDebugStatus(true)
+	userlib.SetDebugStatus(false)
 	userlib.DatastoreClear()
 	userlib.KeystoreClear()
 	datastore := userlib.DatastoreGetMap()
@@ -650,7 +650,7 @@ func TestShareCorruptMagicString(t *testing.T) {
 }
 
 func TestShareUsernameMixup(t *testing.T) {
-	userlib.SetDebugStatus(true)
+	userlib.SetDebugStatus(false)
 	userlib.DatastoreClear()
 	userlib.KeystoreClear()
 	datastore := userlib.DatastoreGetMap()
@@ -737,7 +737,7 @@ func TestShareUsernameMixup(t *testing.T) {
 }
 
 func TestShareFilenameMixup(t *testing.T) {
-	userlib.SetDebugStatus(true)
+	userlib.SetDebugStatus(false)
 	userlib.DatastoreClear()
 	userlib.KeystoreClear()
 	datastore := userlib.DatastoreGetMap()
@@ -809,7 +809,7 @@ func TestShareFilenameMixup(t *testing.T) {
 }
 
 func TestShareIntegration(t *testing.T) {
-	userlib.SetDebugStatus(true)
+	userlib.SetDebugStatus(false)
 	userlib.DatastoreClear()
 	userlib.KeystoreClear()
 
@@ -830,12 +830,12 @@ func TestShareIntegration(t *testing.T) {
 	}
 
 	file := []byte("AS A MEMBER OF THE GREEK COMMUNITY AND PART OF ONE OF THESE ORGANIZATIONS, " +
-	"THIS IS HIGHLY OFFENSIVE. SORORITIES AT UC BERKELEY MAKE IT THEIR GOAL TO GIVE " +
-	"WOMEN A PLACE TO FEEL COMFORTABLE AS WELL AS BETTER THE COMMUNITY. COMPARING " +
-	"SPECIFIC HOUSES TO CHARACTERS FROM A MOVIE ABOUT BULLYING IS ABSURD AND BEYON" +
-	"D INACCURATE. MAKING THE CLAIM THAT SORORITIES ARE CLIQUES IS DEMEANING THE S" +
-	"ISTERHOOD AND VALUES THAT THEY ARE FOUNDED ON. THIS CLEARLY IS A STAB AT A CO" +
-	"MMUNITY ON CAMPUS THAT DOES NOTHING BUT SUPPORT THE REST OF THE STUDENT BODY.")
+		"THIS IS HIGHLY OFFENSIVE. SORORITIES AT UC BERKELEY MAKE IT THEIR GOAL TO GIVE " +
+		"WOMEN A PLACE TO FEEL COMFORTABLE AS WELL AS BETTER THE COMMUNITY. COMPARING " +
+		"SPECIFIC HOUSES TO CHARACTERS FROM A MOVIE ABOUT BULLYING IS ABSURD AND BEYON" +
+		"D INACCURATE. MAKING THE CLAIM THAT SORORITIES ARE CLIQUES IS DEMEANING THE S" +
+		"ISTERHOOD AND VALUES THAT THEY ARE FOUNDED ON. THIS CLEARLY IS A STAB AT A CO" +
+		"MMUNITY ON CAMPUS THAT DOES NOTHING BUT SUPPORT THE REST OF THE STUDENT BODY.")
 
 	alice.StoreFile("F", file)
 	var ms1, ms2 string
@@ -947,7 +947,7 @@ func TestShareIntegration(t *testing.T) {
 }
 
 func TestStuffAfterRevoke(t *testing.T) {
-	userlib.SetDebugStatus(true)
+	userlib.SetDebugStatus(false)
 	userlib.DatastoreClear()
 	userlib.KeystoreClear()
 	datastore := userlib.DatastoreGetMap()
