@@ -385,7 +385,10 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 			userlib.DebugMsg("file Hmac key not found")
 			return
 		}
-		_ = userdata.DeleteFile(filename) // It is okay to error here
+		err := userdata.DeleteFile(filename) // It is okay to error here
+		if err != nil {
+			userlib.DebugMsg("overwrite error : %v", err)
+		}
 	} else {
 		// Generate file keys and file UUID
 		fileUUID = GenRandUUID()
