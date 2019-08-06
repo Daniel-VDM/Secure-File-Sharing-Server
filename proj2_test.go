@@ -10,6 +10,7 @@ import (
 	_ "strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 /**
@@ -497,6 +498,57 @@ func TestAppendWithCorruptDatastore(t *testing.T) {
 		if !errored {
 			t.Error("Corrupted datastore but no failed file load.")
 		}
+	}
+}
+
+func TestAppend(t *testing.T) {
+	file := userlib.RandomBytes(userlib.AESBlockSize * 500)
+	randVal := userlib.RandomBytes(1)
+	bob, err := InitUser("bob", "fubar")
+	if bob == nil || err != nil {
+		t.Error(err)
+		return
+	}
+	bob.StoreFile("test", file)
+
+	var sum time.Duration
+	for i := 0; i < 5000; i++ {
+		start := time.Now()
+		_, err := bob.LoadFile("test")
+		if err != nil {
+			t.Error(err)
+		}
+		sum += time.Since(start)
+	}
+	avg := sum / 5000
+	t.Log("average for loading is :", avg)
+
+	sum = time.Since(time.Now())
+	for i := 0; i < 5000; i++ {
+		var keys []userlib.UUID
+		var vals [][]byte
+		for k, v := range userlib.DatastoreGetMap() {
+			keys = append(keys, k)
+			vals = append(vals, v)
+		}
+
+		start := time.Now()
+		err := bob.AppendFile("test", randVal)
+		if err != nil {
+			t.Error(err)
+		}
+		sum += time.Since(start)
+
+		userlib.DatastoreClear()
+		for i := range keys {
+			userlib.DatastoreSet(keys[i], vals[i])
+		}
+	}
+	avg2 := sum / 5000
+	t.Log("average for appending is :", avg2)
+
+	if avg2 >= avg/2 {
+		t.Error("Inefficient append")
 	}
 }
 
